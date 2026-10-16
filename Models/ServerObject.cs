@@ -9,6 +9,7 @@
         public string DisplaySize {  get; set; } = string.Empty;
         public ServerObjectType Type { get; set; }
         public string Extension { get; set; } = string.Empty;
+        public string CountDisplay { get; set; } = string.Empty;
     }
 
     public enum ServerObjectType

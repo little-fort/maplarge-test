@@ -29,30 +29,34 @@ namespace TestProject.Controllers
             if (System.IO.File.Exists(fullPath))
             {
                 // Infer path for directory browser and render file preview
+                var file = new FileInfo(fullPath);
+                directory = file.Directory?.FullName ?? "/";
             }
+            else
+                directory = fullPath;
 
             var dto = new List<ServerObject>();
-            var subdirs = Directory.GetDirectories(fullPath);
+            var subdirs = Directory.GetDirectories(directory);
             foreach (var dir in subdirs)
             {
                 var info = new DirectoryInfo(dir);
                 dto.Add(new ServerObject
                 {
                     Name = info.Name,
-                    FullPath = info.FullName,
+                    FullPath = info.FullName.Replace("\\", "/"),
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Type = ServerObjectType.Directory
                 });
             }
 
-            var files = Directory.GetFiles(fullPath);
+            var files = Directory.GetFiles(directory);
             foreach (var file in files)
             {
                 var info = new FileInfo(file);
                 dto.Add(new ServerObject
                 {
                     Name = info.Name,
-                    FullPath = info.FullName,
+                    FullPath = info.FullName.Replace("\\", "/"),
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Size = info.Length,
                     DisplaySize = FormatHelper.FormatDisplaySize(info.Length),
@@ -61,7 +65,21 @@ namespace TestProject.Controllers
                 });
             }
 
-            return Ok(new { directory = dto });
+            var currDirectory = new DirectoryInfo(directory);
+            var current = new ServerObject
+            {
+                Name = currDirectory.Name,
+                FullPath = currDirectory.FullName
+            };
+            var counts = new List<string>();
+            if (subdirs.Length > 0)
+                counts.Add(subdirs.Length + (subdirs.Length == 1 ? " folder" : " folders"));
+            if (files.Length > 0)
+                counts.Add(files.Length + (files.Length == 1 ? " file" : " files"));
+
+            current.CountDisplay = string.Join(", ", counts);
+
+            return Ok(new { directory = current, contents = dto });
         }
     }
 }

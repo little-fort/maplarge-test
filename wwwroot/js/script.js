@@ -38,7 +38,9 @@ function getDirectory() {
         data: "path=" + path,
         success: function (data) {
             console.log("Success: ", data);
-            showContents(data.directory);
+            localStorage.setItem(getPath(), JSON.stringify(data));
+            showContents(data.contents);
+            setProperties(data.directory);
         },
         error: function (error) {
             console.error("Error: ", error);
@@ -78,7 +80,7 @@ function showContents(dir) {
         tableRows += `
             <tr>
                 <td>📁</td>
-                <td><a onclick="navigate('up');">..</a></td>
+                <td><a onclick="navigate('up');">.. (parent directory)</a></td>
                 <td></td>
                 <td></td>
                 <td></td>
@@ -88,7 +90,9 @@ function showContents(dir) {
 
     $.each(dir, function (index, object) {
         const objectType = object.type === 0 ? '📁' : '';
-        const navLink = object.type === 0 ? "<a onclick=\"navigate('down', '" + object.name + "');\">" + object.name + "</a>" : object.name;
+        const navLink = object.type === 0 ?
+            "<a onclick=\"navigate('down', '" + object.name + "');\">" + object.name + "</a>" :
+            "<a onclick=\"setFileProperties('" + object.fullPath + "');\">" + object.name + "</a>";
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         tableRows += `
             <tr>
@@ -102,4 +106,79 @@ function showContents(dir) {
     })
 
     $('#table-data').html(tableRows);
+}
+
+function setFileProperties(fullPath) {
+    const data = localStorage.getItem(getPath());
+    if (data) {
+        const directory = JSON.parse(data);
+        const file = directory.contents.find(object => object.fullPath === fullPath);
+        setProperties(file);
+    }
+    else
+        console.error("Object cache deleted or expired. Reload page to refresh file details.");
+}
+
+function setProperties(item) {
+    let icon = "";
+    switch (item.extension) {
+        case "EXE":
+            icon = "💽";
+            break;
+        case "MP4":
+        case "MOV":
+        case "MPEG":
+        case "AVI":
+        case "MKV":
+        case "WEBM":
+            icon = "🎬";
+            break;
+        case "MP3":
+        case "WAV":
+        case "AAC":
+        case "OGG":
+            icon = "🔉";
+            break;
+        case "HTML":
+            icon = "🌐";
+        case "":
+            icon = "📁";
+            break;
+        default:
+            icon = "📄";
+    }
+    $("#properties-icon").html(icon);
+    $("#properties-name").html(item.name);
+
+    const localDate = (new Date(item.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
+    const itemType = item.type === 0 ? "Folder" : item.extension;
+    let tableRows = `
+        <tr>
+            <td>Last Modified</td>
+            <td>${localDate}</td>
+        </tr>
+        <tr>
+            <td>Type</td>
+            <td>${itemType}</td>
+        </tr>
+    `;
+
+    if (item.type === 0) {
+        tableRows += `
+            <tr>
+                <td>Items</td>
+                <td>${item.countDisplay}</td>
+            </tr>
+        `;
+    }
+    if (item.type === 1) {
+        tableRows += `
+            <tr>
+                <td>Size</td>
+                <td>${item.displaySize}</td>
+            </tr>
+        `;
+    }
+
+    $('#properties-data').html(tableRows);
 }

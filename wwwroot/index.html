@@ -5,10 +5,34 @@
     <title></title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="js/script.js"></script>
+    <style>
+        .flex-container {
+            display: flex;
+            gap: 15px;
+        }
+
+        .left-box {
+            flex: 3;
+            padding: 20px;
+        }
+
+        .right-box {
+            flex: 1;
+            padding: 20px;
+        }
+    </style>
 </head>
 <body>
-    <div id="table-container">
-        <table id="table-data"></table>
+    <div class="flex-container">
+        <div class="left-box"><table id="table-data"></table></div>
+        <div class="right-box">
+            <h2>Properties</h2>
+            <div id="properties-icon" style="font-size:72px"></div>
+            <div id="properties-name"></div>
+            <div>
+                <table id="properties-data"></table>
+            </div>
+        </div>
     </div>
 </body>
 </html>
