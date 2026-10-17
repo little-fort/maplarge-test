@@ -39,6 +39,7 @@ function getDirectory() {
         success: function (data) {
             console.log("Success: ", data);
             localStorage.setItem(getPath(), JSON.stringify(data));
+            showLocation(path);
             showContents(data.contents);
             setProperties(data.directory);
         },
@@ -69,6 +70,10 @@ function navigate(direction, name) {
     getDirectory();
 }
 
+function showLocation(path) {
+    $('#location-path').text(path);
+}
+
 function showContents(dir) {
     if (!dir || dir.length === 0)
         return "No directory contents returned."
@@ -79,11 +84,11 @@ function showContents(dir) {
     if (path !== '/') {
         tableRows += `
             <tr>
-                <td>📁</td>
-                <td><a onclick="navigate('up');">.. (parent directory)</a></td>
-                <td></td>
-                <td></td>
-                <td></td>
+                <td class="col-icon">📁</td>
+                <td class="col-name"><a onclick="navigate('up');">.. (parent directory)</a></td>
+                <td class="col-type"></td>
+                <td class="col-modified"></td>
+                <td class="col-size"></td>
             </tr>
         `;
     }
@@ -92,28 +97,30 @@ function showContents(dir) {
         const objectType = object.type === 0 ? '📁' : '';
         const navLink = object.type === 0 ?
             "<a onclick=\"navigate('down', '" + object.name + "');\">" + object.name + "</a>" :
-            "<a onclick=\"setFileProperties('" + object.fullPath + "');\">" + object.name + "</a>";
+            "<a onclick=\"setFileProperties('" + object.fullPath + "', this);\">" + object.name + "</a>";
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         tableRows += `
             <tr>
-                <td>${objectType}</td>
-                <td>${navLink}</td>
-                <td>${object.extension}</td>
-                <td>${localDate}</td>
-                <td>${object.displaySize}</td>
+                <td class="col-icon">${objectType}</td>
+                <td class="col-name">${navLink}</td>
+                <td class="col-type">${object.extension}</td>
+                <td class="col-modified">${localDate}</td>
+                <td class="col-size">${object.displaySize}</td>
             </tr>
         `;
     })
 
-    $('#table-data').html(tableRows);
+    $('#table-data tbody').html(tableRows);
 }
 
-function setFileProperties(fullPath) {
+function setFileProperties(fullPath, link) {
     const data = localStorage.getItem(getPath());
     if (data) {
         const directory = JSON.parse(data);
         const file = directory.contents.find(object => object.fullPath === fullPath);
         setProperties(file);
+        // Highlight the row whose details are now showing
+        $(link).closest('tr').addClass('selected').siblings().removeClass('selected');
     }
     else
         console.error("Object cache deleted or expired. Reload page to refresh file details.");
@@ -154,10 +161,6 @@ function setProperties(item) {
     const itemType = item.type === 0 ? "Folder" : item.extension;
     let tableRows = `
         <tr>
-            <td>Last Modified</td>
-            <td>${localDate}</td>
-        </tr>
-        <tr>
             <td>Type</td>
             <td>${itemType}</td>
         </tr>
@@ -176,6 +179,10 @@ function setProperties(item) {
             <tr>
                 <td>Size</td>
                 <td>${item.displaySize}</td>
+            </tr>
+            <tr>
+                <td>Last Modified</td>
+                <td>${localDate}</td>
             </tr>
         `;
     }

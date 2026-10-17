@@ -1,38 +1,51 @@
 ﻿<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Directory Browser</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📁</text></svg>" />
+    <link rel="stylesheet" href="css/site.css" />
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="js/script.js"></script>
-    <style>
-        .flex-container {
-            display: flex;
-            gap: 15px;
-        }
-
-        .left-box {
-            flex: 3;
-            padding: 20px;
-        }
-
-        .right-box {
-            flex: 1;
-            padding: 20px;
-        }
-    </style>
 </head>
 <body>
-    <div class="flex-container">
-        <div class="left-box"><table id="table-data"></table></div>
-        <div class="right-box">
-            <h2>Properties</h2>
-            <div id="properties-icon" style="font-size:72px"></div>
-            <div id="properties-name"></div>
-            <div>
+    <header class="app-header">
+        <h1>Directory Browser</h1>
+    </header>
+    <main class="flex-container">
+        <section class="left-box panel" aria-labelledby="location-label location-path">
+            <div class="panel-header">
+                <span id="location-label" class="location-label">Location</span>
+                <span id="location-path" class="location-path"></span>
+            </div>
+            <table id="table-data">
+                <colgroup>
+                    <col class="col-icon" />
+                    <col class="col-name" />
+                    <col class="col-type" />
+                    <col class="col-modified" />
+                    <col class="col-size" />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th class="col-name" colspan="2">Name</th>
+                        <th class="col-type">Type</th>
+                        <th class="col-modified">Modified</th>
+                        <th class="col-size">Size</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </section>
+        <aside class="right-box panel" aria-labelledby="properties-heading">
+            <h2 id="properties-heading" class="panel-header">Properties</h2>
+            <div class="properties-body">
+                <div id="properties-icon"></div>
+                <div id="properties-name"></div>
                 <table id="properties-data"></table>
             </div>
-        </div>
-    </div>
+        </aside>
+    </main>
 </body>
 </html>
