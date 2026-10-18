@@ -14,30 +14,36 @@
         <h1>Directory Browser</h1>
     </header>
     <main class="flex-container">
-        <section class="left-box panel" aria-labelledby="location-label location-path">
-            <div class="panel-header">
-                <span id="location-label" class="location-label">Location</span>
-                <span id="location-path" class="location-path"></span>
+        <div class="left-box">
+            <div id="banner" class="banner" hidden>
+                <p id="banner-message" class="banner-message" role="alert"></p>
+                <button type="button" id="banner-close" class="banner-close" aria-label="Dismiss" title="Dismiss">&times;</button>
             </div>
-            <table id="table-data">
-                <colgroup>
-                    <col class="col-icon" />
-                    <col class="col-name" />
-                    <col class="col-type" />
-                    <col class="col-modified" />
-                    <col class="col-size" />
-                </colgroup>
-                <thead>
-                    <tr>
-                        <th class="col-name" colspan="2">Name</th>
-                        <th class="col-type">Type</th>
-                        <th class="col-modified">Modified</th>
-                        <th class="col-size">Size</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </section>
+            <section class="panel" aria-labelledby="location-label location-path">
+                <div class="panel-header">
+                    <span id="location-label" class="location-label">Location</span>
+                    <span id="location-path" class="location-path"></span>
+                </div>
+                <table id="table-data">
+                    <colgroup>
+                        <col class="col-icon" />
+                        <col class="col-name" />
+                        <col class="col-type" />
+                        <col class="col-modified" />
+                        <col class="col-size" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th class="col-name" colspan="2">Name</th>
+                            <th class="col-type">Type</th>
+                            <th class="col-modified">Modified</th>
+                            <th class="col-size">Size</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+        </div>
         <aside class="right-box panel" aria-labelledby="properties-heading">
             <h2 id="properties-heading" class="panel-header">Properties</h2>
             <div class="properties-body">

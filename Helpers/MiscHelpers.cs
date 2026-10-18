@@ -1,9 +1,7 @@
-﻿using Microsoft.AspNetCore.Http.HttpResults;
-using System.Web;
-
+﻿
 namespace TestProject.Helpers
 {
-    public class TestHelpers
+    public class MiscHelpers
     {
         private const decimal _KB = 1024;
         private const decimal _MB = _KB * 1024;

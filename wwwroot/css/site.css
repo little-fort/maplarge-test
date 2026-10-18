@@ -16,6 +16,10 @@
     --accent: #0b63ce;
     --row-hover: #f1f3f5;
     --row-selected: #e3eefc;
+    --danger-bg: #fdeceb;
+    --danger-border: #f0b9b5;
+    --danger-text: #8c1d18;
+    --danger-hover: #efd3d2;
 
     --radius: 8px;
     --gutter: 24px;
@@ -32,6 +36,10 @@
         --accent: #6aa8ff;
         --row-hover: #272b31;
         --row-selected: #1f3552;
+        --danger-bg: #3a1f21;
+        --danger-border: #6e3034;
+        --danger-text: #ffb4ab;
+        --danger-hover: #523132;
     }
 }
 
@@ -82,6 +90,9 @@ h2 {
 .left-box {
     flex: 1 1 auto;
     min-width: 0; /* lets the table shrink instead of overflowing the page */
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .right-box {
@@ -117,6 +128,57 @@ h2 {
 .location-path {
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+/* ---------- Banner ---------- */
+
+.banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 8px 8px 16px;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius);
+    color: var(--danger-text);
+}
+
+.banner[hidden] {
+    display: none; /* `display: flex` above would otherwise override the hidden attribute */
+}
+
+.banner-message {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding-top: 4px; /* centers a single line against the 28px close button */
+    overflow-wrap: anywhere;
+}
+
+.banner-close {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.banner-close:hover {
+    background: var(--danger-hover);
+}
+
+.banner-close:focus-visible {
+    outline: 2px solid var(--danger-text);
+    outline-offset: 1px;
 }
 
 /* ---------- Directory listing ---------- */

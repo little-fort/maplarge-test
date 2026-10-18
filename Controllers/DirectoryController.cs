@@ -1,6 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using System.IO;
-using System.Web;
 using TestProject.Helpers;
 using TestProject.Models;
 
@@ -22,11 +20,11 @@ namespace TestProject.Controllers
         public async Task<IActionResult> Get([FromQuery] string path) 
         {
             var app = Environment.CurrentDirectory;
-            var fullPath = Path.Combine(app, path.TrimStart('/').TrimStart('\\'));
+            var fullPath = Path.GetFullPath(Path.Combine(app, path.TrimStart('/').TrimStart('\\')));
             string directory;
             
             // Validate path
-            if (!TestHelpers.IsPathUnderAppRoot(fullPath) || (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath)))
+            if (!MiscHelpers.IsPathUnderAppRoot(fullPath) || (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath)))
                 return NotFound();
 
             // Get data to serve direct file request
@@ -64,7 +62,7 @@ namespace TestProject.Controllers
                     FullPath = info.FullName.Replace("\\", "/"),
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Size = info.Length,
-                    DisplaySize = TestHelpers.FormatDisplaySize(info.Length),
+                    DisplaySize = MiscHelpers.FormatDisplaySize(info.Length),
                     Extension = info.Name.Contains('.') ? info.Name.Split('.').ToList().Last().ToUpper() : "FILE",
                     Type = ServerObjectType.File
                 });

@@ -8,8 +8,11 @@
 
     // Ensure back/forward clicks update displayed folder
     window.addEventListener('popstate', (event) => {
+        hideBanner();
         getDirectory();
     });
+
+    $('#banner-close').on('click', hideBanner);
 
     // Folder/file click handler
     $('#table-data').on('click', 'a[data-name]', function () {
@@ -58,14 +61,22 @@ function getDirectory() {
         },
         error: function (error) {
             console.error("Error: ", error);
-            updateQueryParam('path', '/', false);
-            getDirectory();
-            alert("The specified path was not found on the server.");
+            const problem = error.status === 404 ? "was not found on the server" : "could not be loaded";
+
+            // Fall back to the top-level folder once to avoid looping.
+            if (path !== '/') {
+                showBanner(`The path "${path}" ${problem}.`);
+                updateQueryParam('path', '/', false);
+                getDirectory();
+            }
+            else
+                showBanner(`The top-level folder ${problem}. Try reloading the page.`);
         }
     });
 }
 
 function navigate(direction, name) {
+    hideBanner();
     const path = getPath();
     let dirs = path.split('/');
 
@@ -90,6 +101,15 @@ function showLocation(path) {
     $('#location-path').text(path);
 }
 
+function showBanner(message) {
+    $('#banner').prop('hidden', false);
+    $('#banner-message').text(message);
+}
+
+function hideBanner() {
+    $('#banner').prop('hidden', true);
+}
+
 function showContents(dir) {
     let tableRows = '';
     const path = getPath();
@@ -109,13 +129,13 @@ function showContents(dir) {
     $.each(dir, function (index, object) {
         const objectIcon = object.type === 0 ? '📁' : '';
         const objectType = object.type === 0 ? 'folder' : 'file';
-        const navLink = `<a data-type="${objectType}" data-name="${htmlEncode(object.name)}" data-path="${htmlEncode(object.fullPath)}">${object.name}</a>`;
+        const navLink = `<a data-type="${objectType}" data-name="${htmlEncode(object.name)}" data-path="${htmlEncode(object.fullPath)}">${htmlEncode(object.name)}</a>`;
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         tableRows += `
             <tr>
                 <td class="col-icon">${objectIcon}</td>
                 <td class="col-name">${navLink}</td>
-                <td class="col-type">${object.extension}</td>
+                <td class="col-type">${htmlEncode(object.extension)}</td>
                 <td class="col-modified">${localDate}</td>
                 <td class="col-size">${object.displaySize}</td>
             </tr>
@@ -145,7 +165,7 @@ function setProperties(item) {
     $("#properties-name").text(item.name);
 
     const localDate = (new Date(item.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
-    const itemType = item.type === 0 ? "Folder" : item.extension;
+    const itemType = item.type === 0 ? "Folder" : htmlEncode(item.extension);
     let tableRows = `
         <tr>
             <td>Type</td>
