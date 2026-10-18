@@ -21,23 +21,25 @@ namespace TestProject.Controllers
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] string path) 
         {
-            // var app = AppDomain.CurrentDomain.BaseDirectory; // Uses the executing directory of the build output for realistic usage
-            var app = Environment.CurrentDirectory; // Uses the source repo directory for easier testing
-            var fullPath = Path.Combine(app, FormatHelper.SanitizePath(path));
+            var app = Environment.CurrentDirectory;
+            var fullPath = Path.Combine(app, path.TrimStart('/').TrimStart('\\'));
             string directory;
-            if (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath))
+            
+            // Validate path
+            if (!TestHelpers.IsPathUnderAppRoot(fullPath) || (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath)))
                 return NotFound();
 
+            // Get data to serve direct file request
             if (System.IO.File.Exists(fullPath))
             {
                 var file = new FileInfo(fullPath);
                 // TODO: Infer path for directory browser and render file preview
-
                 directory = file.Directory?.FullName ?? "/";
             }
             else
                 directory = fullPath;
 
+            // Compile folder content data
             var dto = new List<ServerObject>();
             var subdirs = Directory.GetDirectories(directory);
             foreach (var dir in subdirs)
@@ -62,12 +64,13 @@ namespace TestProject.Controllers
                     FullPath = info.FullName.Replace("\\", "/"),
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Size = info.Length,
-                    DisplaySize = FormatHelper.FormatDisplaySize(info.Length),
+                    DisplaySize = TestHelpers.FormatDisplaySize(info.Length),
                     Extension = info.Name.Contains('.') ? info.Name.Split('.').ToList().Last().ToUpper() : "FILE",
                     Type = ServerObjectType.File
                 });
             }
 
+            // Add metadata
             var currDirectory = new DirectoryInfo(directory);
             var current = new ServerObject
             {

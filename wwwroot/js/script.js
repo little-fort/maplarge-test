@@ -6,8 +6,17 @@
     normalizePath();
     getDirectory();
 
+    // Ensure back/forward clicks update displayed folder
     window.addEventListener('popstate', (event) => {
         getDirectory();
+    });
+
+    // Folder/file click handler
+    $('#table-data').on('click', 'a[data-name]', function () {
+        if (this.dataset.type === 'folder')
+            navigate('down', this.dataset.name);
+        else if (this.dataset.type === 'file')
+            setFileProperties(this.dataset.path, this);
     });
 });
 
@@ -39,7 +48,7 @@ function getDirectory() {
     $.ajax({
         url: '/directory',
         type: 'GET',
-        data: "path=" + path,
+        data: { path: path },
         success: function (data) {
             console.log("Success: ", data);
             localStorage.setItem(getPath(), JSON.stringify(data));
@@ -49,9 +58,9 @@ function getDirectory() {
         },
         error: function (error) {
             console.error("Error: ", error);
-            alert("The specified path was not found on the server.");
             updateQueryParam('path', '/', false);
             getDirectory();
+            alert("The specified path was not found on the server.");
         }
     });
 }
@@ -98,14 +107,13 @@ function showContents(dir) {
     }
 
     $.each(dir, function (index, object) {
-        const objectType = object.type === 0 ? '📁' : '';
-        const navLink = object.type === 0 ?
-            "<a onclick=\"navigate('down', '" + encodeURIComponent(object.name) + "');\">" + object.name + "</a>" :
-            "<a onclick=\"setFileProperties('" + htmlEncode(object.fullPath) + "', this);\">" + object.name + "</a>";
+        const objectIcon = object.type === 0 ? '📁' : '';
+        const objectType = object.type === 0 ? 'folder' : 'file';
+        const navLink = `<a data-type="${objectType}" data-name="${htmlEncode(object.name)}" data-path="${htmlEncode(object.fullPath)}">${object.name}</a>`;
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         tableRows += `
             <tr>
-                <td class="col-icon">${objectType}</td>
+                <td class="col-icon">${objectIcon}</td>
                 <td class="col-name">${navLink}</td>
                 <td class="col-type">${object.extension}</td>
                 <td class="col-modified">${localDate}</td>
@@ -134,7 +142,7 @@ function setFileProperties(fullPath, link) {
 function setProperties(item) {
     const icon = getFileTypeIcon(item.extension);
     $("#properties-icon").html(icon);
-    $("#properties-name").html(item.name);
+    $("#properties-name").text(item.name);
 
     const localDate = (new Date(item.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
     const itemType = item.type === 0 ? "Folder" : item.extension;

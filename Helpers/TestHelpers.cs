@@ -1,8 +1,9 @@
-﻿using System.Web;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
+using System.Web;
 
 namespace TestProject.Helpers
 {
-    public class FormatHelper
+    public class TestHelpers
     {
         private const decimal _KB = 1024;
         private const decimal _MB = _KB * 1024;
@@ -27,14 +28,17 @@ namespace TestProject.Helpers
             
             return $"{Math.Round(size / _PB)} PB";
         }
-
-        public static string SanitizePath(string path)
+        
+        public static bool IsPathUnderAppRoot(string path)
         {
-            var safePath = HttpUtility.HtmlDecode(path.TrimStart('/').TrimStart('\\'));
-            safePath = safePath.Replace("..", "");
-            safePath = safePath.Replace(":", "");
+            var appDir = Path.GetFullPath(Environment.CurrentDirectory);
+            var rootDir = Path.EndsInDirectorySeparator(appDir) ? appDir : appDir + Path.DirectorySeparatorChar;
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-            return safePath;
+            if (!path.Equals(appDir, comparison) && !path.StartsWith(rootDir, comparison))
+                return false;
+
+            return true;
         }
     }
 }
