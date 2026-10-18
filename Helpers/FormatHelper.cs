@@ -1,4 +1,6 @@
-﻿namespace TestProject.Helpers
+﻿using System.Web;
+
+namespace TestProject.Helpers
 {
     public class FormatHelper
     {
@@ -10,8 +12,10 @@
 
         public static string FormatDisplaySize(long size)
         {
-            if (size < 1000)
+            if (size < 100)
                 return "0 KB";
+            if (size < 1000)
+                return "1 KB";
             if (size < 1_000_000)
                 return $"{Math.Round(size / _KB)} KB";
             if (size < 1_000_000_000)
@@ -22,6 +26,15 @@
                 return $"{Math.Round(size / _TB)} TB";
             
             return $"{Math.Round(size / _PB)} PB";
+        }
+
+        public static string SanitizePath(string path)
+        {
+            var safePath = HttpUtility.HtmlDecode(path.TrimStart('/').TrimStart('\\'));
+            safePath = safePath.Replace("..", "");
+            safePath = safePath.Replace(":", "");
+
+            return safePath;
         }
     }
 }

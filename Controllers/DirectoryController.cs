@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.IO;
+using System.Web;
 using TestProject.Helpers;
 using TestProject.Models;
 
@@ -20,16 +21,18 @@ namespace TestProject.Controllers
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] string path) 
         {
-            var app = Environment.CurrentDirectory; //AppDomain.CurrentDomain.BaseDirectory;
-            var fullPath = Path.Combine(app, path.TrimStart('/').TrimStart('\\'));
-            var directory = string.Empty;
+            // var app = AppDomain.CurrentDomain.BaseDirectory; // Uses the executing directory of the build output for realistic usage
+            var app = Environment.CurrentDirectory; // Uses the source repo directory for easier testing
+            var fullPath = Path.Combine(app, FormatHelper.SanitizePath(path));
+            string directory;
             if (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath))
                 return NotFound();
 
             if (System.IO.File.Exists(fullPath))
             {
-                // Infer path for directory browser and render file preview
                 var file = new FileInfo(fullPath);
+                // TODO: Infer path for directory browser and render file preview
+
                 directory = file.Directory?.FullName ?? "/";
             }
             else
@@ -60,7 +63,7 @@ namespace TestProject.Controllers
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Size = info.Length,
                     DisplaySize = FormatHelper.FormatDisplaySize(info.Length),
-                    Extension = info.Name.Split('.').ToList().Last().ToUpper(),
+                    Extension = info.Name.Contains('.') ? info.Name.Split('.').ToList().Last().ToUpper() : "FILE",
                     Type = ServerObjectType.File
                 });
             }

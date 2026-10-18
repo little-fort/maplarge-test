@@ -1,10 +1,14 @@
 ﻿$(document).ready(function () {
     const path = getPath();
-    if (!path || path.length === 0)
+    if (!path || path.length === 0 || path.includes(':') || path.includes(".."))
         updateQueryParam('path', '/', false);
 
     normalizePath();
     getDirectory();
+
+    window.addEventListener('popstate', (event) => {
+        getDirectory();
+    });
 });
 
 function getPath() {
@@ -45,6 +49,9 @@ function getDirectory() {
         },
         error: function (error) {
             console.error("Error: ", error);
+            alert("The specified path was not found on the server.");
+            updateQueryParam('path', '/', false);
+            getDirectory();
         }
     });
 }
@@ -75,9 +82,6 @@ function showLocation(path) {
 }
 
 function showContents(dir) {
-    if (!dir || dir.length === 0)
-        return "No directory contents returned."
-
     let tableRows = '';
     const path = getPath();
 
@@ -96,8 +100,8 @@ function showContents(dir) {
     $.each(dir, function (index, object) {
         const objectType = object.type === 0 ? '📁' : '';
         const navLink = object.type === 0 ?
-            "<a onclick=\"navigate('down', '" + object.name + "');\">" + object.name + "</a>" :
-            "<a onclick=\"setFileProperties('" + object.fullPath + "', this);\">" + object.name + "</a>";
+            "<a onclick=\"navigate('down', '" + encodeURIComponent(object.name) + "');\">" + object.name + "</a>" :
+            "<a onclick=\"setFileProperties('" + htmlEncode(object.fullPath) + "', this);\">" + object.name + "</a>";
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         tableRows += `
             <tr>
@@ -116,6 +120,7 @@ function showContents(dir) {
 function setFileProperties(fullPath, link) {
     const data = localStorage.getItem(getPath());
     if (data) {
+        console.log("Retrieving properties for: " + fullPath);
         const directory = JSON.parse(data);
         const file = directory.contents.find(object => object.fullPath === fullPath);
         setProperties(file);
@@ -127,33 +132,7 @@ function setFileProperties(fullPath, link) {
 }
 
 function setProperties(item) {
-    let icon = "";
-    switch (item.extension) {
-        case "EXE":
-            icon = "💽";
-            break;
-        case "MP4":
-        case "MOV":
-        case "MPEG":
-        case "AVI":
-        case "MKV":
-        case "WEBM":
-            icon = "🎬";
-            break;
-        case "MP3":
-        case "WAV":
-        case "AAC":
-        case "OGG":
-            icon = "🔉";
-            break;
-        case "HTML":
-            icon = "🌐";
-        case "":
-            icon = "📁";
-            break;
-        default:
-            icon = "📄";
-    }
+    const icon = getFileTypeIcon(item.extension);
     $("#properties-icon").html(icon);
     $("#properties-name").html(item.name);
 
@@ -188,4 +167,42 @@ function setProperties(item) {
     }
 
     $('#properties-data').html(tableRows);
+}
+
+function getFileTypeIcon(extension) {
+    if (extension === "") return "📁";
+    if (extension === "FILE") return "📄";
+
+    const exe = ["EXE"]
+    const cab = ["CAB", "MSI", "MSIX", "ZIP", "7Z"];
+    const video = ["MP4", "MOV", "MPEG", "AVI", "MKV", "WEBM"];
+    const audio = ["MP3", "WAV", "AAC", "OGG"];
+    const web = ["HTM", "HTML"];
+    const script = ["JS", "PS1", "PY", "SH", "BAT"];
+
+    if (exe.includes(extension)) return "💽";
+    if (cab.includes(extension)) return "🗄️";
+    if (video.includes(extension)) return "🎬";
+    if (audio.includes(extension)) return "🔉";
+    if (web.includes(extension)) return "🌐";
+    if (script.includes(extension)) return "📜";
+
+    return "📃";
+}
+
+function htmlEncode(str) {
+    const entityMap = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': '&quot;',
+        "'": '&#39;',
+        "/": '&#x2F;'
+    };
+
+    const retval = String(str).replace(/[&<>"'\/]/g, function (s) {
+        return entityMap[s];
+    });
+
+    return retval;
 }
