@@ -51,6 +51,27 @@
                 <div id="properties-name"></div>
                 <table id="properties-data"></table>
             </div>
+            <table id="item-options" style="padding:5px;">
+                <tr>
+                    <td><a onclick="addItemToClipboard('COPY');">🗃️<br/>Copy</a></td>
+                    <td><a onclick="addItemToClipboard('CUT');">✂️<br />Cut</a></td>
+                    <td><a onclick="pasteClipboard();">📋<br />Paste</a></td>
+                    <td><a onclick="renameItem();">🏷️<br />Rename</a></td>
+                    <td><a onclick="deleteItem();">🗑️<br />Delete</a></td>
+                </tr>
+            </table>
+            <table id="clipboard-display" style="padding:5px;">
+                <tbody></tbody>
+            </table>
+            <div id="clipboard-overwrite">
+                <input type="checkbox" id="overwrite" name="overwrite" value="true">
+                <label for="overwrite">Overwrite existing</label>
+            </div>
+            <div id="action-success-result"></div>
+            <div id="action-failed-result">
+                <div id="action-failed-message"></div>
+                <div id="action-failed-list"><ul></ul></div>
+            </div>
         </aside>
     </main>
 </body>

@@ -38,5 +38,11 @@ namespace TestProject.Helpers
 
             return true;
         }
+
+        public static bool IsValidFileName(string name) =>
+            !string.IsNullOrWhiteSpace(name)
+            && name == Path.GetFileName(name)
+            && name is not "." and not ".."
+            && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
     }
 }

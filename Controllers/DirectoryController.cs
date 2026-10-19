@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 using TestProject.Helpers;
 using TestProject.Models;
 using TestProject.Services;
@@ -81,8 +81,7 @@ namespace TestProject.Controllers
 
         /// <summary>
         /// Returns the size of each subfolder in a directory, plus the directory's total size.
-        /// This is separate from <see cref="Get"/> because it walks every subfolder, which can take
-        /// seconds for a large tree; the page shows the listing first and fills these in after.
+        /// Implemented as a separate endpoint to support lazy loading.
         /// </summary>
         [HttpGet("sizes")]
         public IActionResult GetSizes([FromQuery] string path, CancellationToken cancellationToken)
@@ -153,6 +152,170 @@ namespace TestProject.Controllers
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Pastes the contents of the clipboard into the target directory.
+        /// </summary>
+        [HttpPost("paste")]
+        public async Task<IActionResult> Paste([FromBody] ClipboardAction action, bool overwrite = false)
+        {
+            if (!TryResolveDirectory(action.Path, out var directory))
+                return NotFound();
+
+            int copyCount = 0, cutCount = 0;
+            List<string> failed = new List<string>();
+            foreach (var item in action.Copy)
+            {
+                try
+                {
+                    var target = Path.Combine(directory, item.Name);
+                    if (!MiscHelpers.IsPathUnderAppRoot(item.FullPath) || !MiscHelpers.IsPathUnderAppRoot(target))
+                        throw new UnauthorizedAccessException("The source and target paths must be within the application directory.");
+
+                    if (System.IO.File.Exists(item.FullPath) && System.IO.File.Exists(target))
+                        System.IO.File.Copy(item.FullPath, target, overwrite);
+                    else if (Directory.Exists(item.FullPath) && Directory.Exists(target))
+                    {
+                        // Create all target subdirectories upfront
+                        foreach (string dirPath in Directory.GetDirectories(action.Path, "*", SearchOption.AllDirectories))
+                            Directory.CreateDirectory(dirPath.Replace(action.Path, target));
+
+                        // Copy all files, overwriting existing ones
+                        foreach (string newPath in Directory.GetFiles(action.Path, "*.*", SearchOption.AllDirectories))
+                            System.IO.File.Copy(newPath, newPath.Replace(action.Path, target), overwrite);
+                    }
+                    else
+                        throw new InvalidOperationException("The operation's source and destination are mismatched.");
+                    
+                    copyCount++;
+                }
+                catch (Exception ex)
+                {
+                    failed.Add(item.Name);
+                    _logger.LogError(ex.Message);
+                }
+            }
+
+            foreach (var item in action.Cut)
+            {
+                try
+                {
+                    var target = Path.Combine(directory, item.Name);
+                    if (!MiscHelpers.IsPathUnderAppRoot(action.Path) || !MiscHelpers.IsPathUnderAppRoot(target))
+                        throw new UnauthorizedAccessException("The source and target paths must be within the application directory.");
+
+                    if (System.IO.File.Exists(item.FullPath) && System.IO.File.Exists(target))
+                        System.IO.File.Move(item.FullPath, target, overwrite);
+                    else if (Directory.Exists(item.FullPath) && Directory.Exists(target))
+                    {
+                        // Create all target subdirectories upfront
+                        foreach (string dirPath in Directory.GetDirectories(action.Path, "*", SearchOption.AllDirectories))
+                            Directory.CreateDirectory(dirPath.Replace(action.Path, target));
+
+                        // Move all files, overwriting existing ones
+                        foreach (string newPath in Directory.GetFiles(action.Path, "*.*", SearchOption.AllDirectories))
+                            System.IO.File.Move(newPath, newPath.Replace(action.Path, target), overwrite);
+
+                        // Delete the old directory
+                        Directory.Delete(action.Path, true);
+                    }
+                    else
+                        throw new InvalidOperationException("The operation's source and destination are mismatched.");
+
+                    cutCount++;
+                }
+                catch (Exception ex)
+                {
+                    failed.Add(item.Name);
+                    _logger.LogError(ex.Message);
+                }
+            }
+
+            var counts = new List<string>();
+            if (copyCount > 0)
+                counts.Add(copyCount + (copyCount == 1 ? " item" : " items") + " copied");
+            if (cutCount > 0)
+                counts.Add(cutCount + (cutCount == 1 ? " item" : " items") + " cut");
+
+            var message = string.Join(", ", counts);
+
+            if (failed.Count > 0)
+                return StatusCode(StatusCodes.Status500InternalServerError, new { status = "FAILED", message, failed });
+
+            return Ok(new { status = "OK", message });
+        }
+
+        /// <summary>
+        /// Renames the specified file
+        /// </summary>
+        [HttpPost("rename")]
+        public async Task<IActionResult> Rename([FromBody] RenameAction action)
+        {
+            if (!TryResolveDirectory(action.Path, out var directory))
+                return NotFound();
+
+            try
+            {
+                var target = Path.Combine(directory, action.Name);
+                if (!MiscHelpers.IsPathUnderAppRoot(action.Path) || !MiscHelpers.IsPathUnderAppRoot(target))
+                    return Forbid("The source and target paths must be within the application directory.");
+
+                if (System.IO.File.Exists(action.Path) && System.IO.File.Exists(target))
+                    System.IO.File.Move(action.Path, target);
+                else if (Directory.Exists(action.Path) && Directory.Exists(target))
+                {
+                    // Create all target subdirectories upfront
+                    foreach (string dirPath in Directory.GetDirectories(action.Path, "*", SearchOption.AllDirectories))
+                        Directory.CreateDirectory(dirPath.Replace(action.Path, target));
+
+                    // Move all files, overwriting existing ones
+                    foreach (string newPath in Directory.GetFiles(action.Path, "*.*", SearchOption.AllDirectories))
+                        System.IO.File.Move(newPath, newPath.Replace(action.Path, target));
+
+                    // Delete the old directory
+                    Directory.Delete(action.Path, true);
+                }
+                else
+                    throw new InvalidOperationException("The operation's source and destination are mismatched.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message);
+                return Problem(ex.Message);
+            }
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Deletes the specified file
+        /// </summary>
+        [HttpDelete]
+        public async Task<IActionResult> Delete([FromQuery] string path)
+        {
+            if (!TryResolveDirectory(path, out var directory))
+                return NotFound();
+
+            try
+            {
+                if (!MiscHelpers.IsPathUnderAppRoot(path))
+                    return Forbid("The target path must be within the application directory.");
+
+                if (System.IO.File.Exists(path))
+                    System.IO.File.Delete(path);
+                else if (Directory.Exists(path))
+                    Directory.Delete(path, true);
+                else
+                    return NotFound("The supplied path does not exist.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message);
+                return Problem(ex.Message);
+            }
+
+            return Ok();
         }
     }
 }

@@ -1,10 +1,16 @@
-﻿$(document).ready(function () {
+﻿// Folder sizes load separately from the listing (see getFolderSizes). Keeping the request
+// lets it be cancelled when the user leaves the folder, which also stops the server's walk.
+let folderSizesRequest = null;
+const sizePlaceholder = '<span class="size-pending" title="Calculating size…">…</span>';
+
+$(document).ready(function () {
     const path = getPath();
     if (!path || path.length === 0 || path.includes(':') || path.includes(".."))
         updateQueryParam('path', '/', false);
 
     normalizePath();
     getDirectory();
+    updateClipboardDisplay();
 
     // Ensure back/forward clicks update displayed folder
     window.addEventListener('popstate', (event) => {
@@ -48,6 +54,7 @@ function updateQueryParam(key, value, allowBack) {
 
 function getDirectory() {
     const path = getPath();
+    folderSizesRequest?.abort(); // the sizes are for the folder being left
     $.ajax({
         url: '/directory',
         type: 'GET',
@@ -58,6 +65,7 @@ function getDirectory() {
             showLocation(path);
             showContents(data.contents);
             setProperties(data.directory);
+            getFolderSizes(path);
         },
         error: function (error) {
             console.error("Error: ", error);
@@ -73,6 +81,39 @@ function getDirectory() {
                 showBanner(`The top-level folder ${problem}. Try reloading the page.`);
         }
     });
+}
+
+function getFolderSizes(path) {
+    folderSizesRequest?.abort(); // only the listing on screen needs sizes
+    folderSizesRequest = $.ajax({
+        url: '/directory/sizes',
+        type: 'GET',
+        data: { path: path },
+        success: function (data) {
+            showFolderSizes(data);
+        },
+        error: function (error, status) {
+            if (status === 'abort')
+                return; // cancelled on purpose; a newer request has taken over
+            console.error("Error loading folder sizes: ", error);
+            showFolderSizes(null);
+        }
+    });
+}
+
+function showFolderSizes(data) {
+    const sizes = new Map((data ? data.folders : []).map(folder => [folder.name, folder]));
+
+    $('#table-data a[data-type="folder"]').each(function () {
+        const folder = sizes.get(this.dataset.name);
+        const cell = $(this).closest('tr').find('td.col-size');
+        if (folder && folder.size !== null)
+            cell.text(folder.displaySize);
+        else
+            cell.text('—').attr('title', 'Size not available');
+    });
+
+    $('#properties-size').text(data ? data.displaySize : 'Not available');
 }
 
 function navigate(direction, name) {
@@ -131,13 +172,14 @@ function showContents(dir) {
         const objectType = object.type === 0 ? 'folder' : 'file';
         const navLink = `<a data-type="${objectType}" data-name="${htmlEncode(object.name)}" data-path="${htmlEncode(object.fullPath)}">${htmlEncode(object.name)}</a>`;
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
+        const objectSize = object.type === 0 ? sizePlaceholder : object.displaySize;
         tableRows += `
             <tr>
                 <td class="col-icon">${objectIcon}</td>
                 <td class="col-name">${navLink}</td>
                 <td class="col-type">${htmlEncode(object.extension)}</td>
                 <td class="col-modified">${localDate}</td>
-                <td class="col-size">${object.displaySize}</td>
+                <td class="col-size">${objectSize}</td>
             </tr>
         `;
     })
@@ -176,6 +218,10 @@ function setProperties(item) {
     if (item.type === 0) {
         tableRows += `
             <tr>
+                <td>Size</td>
+                <td id="properties-size"><span class="size-pending">Calculating…</span></td>
+            </tr>
+            <tr>
                 <td>Items</td>
                 <td>${item.countDisplay}</td>
             </tr>
@@ -195,6 +241,7 @@ function setProperties(item) {
     }
 
     $('#properties-data').html(tableRows);
+    localStorage.setItem("selectedItem", JSON.stringify(item));
 }
 
 function getFileTypeIcon(extension) {
@@ -205,6 +252,7 @@ function getFileTypeIcon(extension) {
     const cab = ["CAB", "MSI", "MSIX", "ZIP", "7Z"];
     const video = ["MP4", "MOV", "MPEG", "AVI", "MKV", "WEBM"];
     const audio = ["MP3", "WAV", "AAC", "OGG"];
+    const image = ["JPEG", "JPG", "PNG", "TIFF", "BMP", "GIF"];
     const web = ["HTM", "HTML"];
     const script = ["JS", "PS1", "PY", "SH", "BAT"];
 
@@ -212,6 +260,7 @@ function getFileTypeIcon(extension) {
     if (cab.includes(extension)) return "🗄️";
     if (video.includes(extension)) return "🎬";
     if (audio.includes(extension)) return "🔉";
+    if (image.includes(extension)) return "🖼️";
     if (web.includes(extension)) return "🌐";
     if (script.includes(extension)) return "📜";
 
@@ -233,4 +282,191 @@ function htmlEncode(str) {
     });
 
     return retval;
+}
+
+// Item actions
+function getClipboard() {
+    const clipboardString = localStorage.getItem("clipboard");
+    const clipboard = clipboardString ? JSON.parse(clipboardString) : [];
+    return clipboard;
+}
+function addItemToClipboard(action) {
+    const clipboard = getClipboard();
+    const itemString = localStorage.getItem("selectedItem");
+
+    if (!itemString) {
+        showBanner("There was an error updating the clipboard. Reload the page and try again.");
+        return;
+    }
+
+    const item = JSON.parse(itemString);
+    item.action = action;
+
+    if (!clipboard.some(clip => clip.fullPath == item.fullPath)) {
+        clipboard.push(item);
+        clipboard.sort((a, b) => a.name.localeCompare(b.name));
+        localStorage.setItem("clipboard", JSON.stringify(clipboard));
+
+        updateClipboardDisplay();
+    }
+}
+
+function pasteClipboard() {
+    const clipboard = getClipboard();
+    const copyItems = clipboard.filter(object => object.action === 'COPY');
+    const cutItems = clipboard.filter(object => object.action === 'CUT');
+    const overwrite = $('#myCheckbox').prop('checked') ? 'true' : 'false'
+
+    $.ajax({
+        url: '/directory/paste?' + $.param({ overwrite: overwrite }),
+        type: 'POST',
+        contentType: 'application/json',
+        dataType: 'json',
+        data: JSON.stringify({ path: getPath(), copy: copyItems, cut: cutItems }),
+        success: function (data) {
+            console.log("Success: ", data);
+            getDirectory();
+            localStorage.removeItem('clipboard');
+            updateClipboardDisplay();
+            $('#action-success-result').text(data.message);
+            $('#action-failed-message').text('');
+            $('#action-failed-list ul').html('');
+        },
+        error: function (error) {
+            console.error("Error: ", error);
+            
+            $('#action-success-result').text(error.message);
+
+            if (error.failed) {
+                if (error.failed.length == 0)
+                    showBanner(`There was a problem pasting the clipboard contents. Try reloading the page.`);
+                else if (error.failed.length == 1)
+                    $('#action-failed-message').text(`${error.failed[0]} could not be pasted into the specified directory.`);
+                else {
+                    $('#action-failed-message').text('The following items could not be pasted into the specified directory:');
+
+                    let listItems = '';
+                    $.each(error.failed, function (index, name) {
+                        listItems += `<li>${htmlEncode(name)}</li>`;
+                    });
+
+                    $('#action-failed-list ul').html(listItems);
+                }
+            }
+            else if (error.responseJSON.title) {
+                showBanner('There was a problem pasting the clipboard contents. Server message: ' + error.responseJSON.title);
+            }
+        }
+    });
+}
+
+function updateClipboardDisplay() {
+    let tableRows = '';
+    const clipboard = getClipboard();
+
+    if (clipboard && clipboard.length > 0) {
+        $.each(clipboard, function (index, object) {
+            const objectIcon = getFileTypeIcon(object.extension);
+            tableRows += `
+            <tr>
+                <td class="col-icon">${objectIcon}</td>
+                <td class="col-name">${object.name}</td>
+                <td>${object.action}</td>
+                <td onclick="removeClipboardItem('${index}')">x</td>
+            </tr>
+        `;
+        })
+
+        $('#clipboard-display tbody').html(tableRows);
+        $('#clipboard-overwrite').show();
+    }
+    else {
+        $('#clipboard-display tbody').html('');
+        $('#clipboard-overwrite').hide();
+    }
+}
+
+function removeClipboardItem(index) {
+    const clipboard = getClipboard();
+
+    if (clipboard.length === 0 && index === 0)
+        localStorage.removeItem('clipboard');
+    else {
+        clipboard.splice(index, 1);
+        localStorage.setItem("clipboard", JSON.stringify(clipboard));
+    }
+
+    updateClipboardDisplay();
+}
+
+function renameItem() {
+    const minLength = 1;
+    let input = null;
+
+    do {
+        input = prompt(`Enter desired file name:`);
+
+        if (input === null) {
+            break;
+        }
+    } while (input.trim().length < minLength);
+
+    if (input !== null) {
+        const itemString = localStorage.getItem("selectedItem");
+        const item = JSON.parse(itemString);
+
+        $.ajax({
+            url: '/directory/rename',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ path: item.fullPath, name: input.trim() }),
+            success: function () {
+                getDirectory();
+                $('#action-success-result').text('Item renamed successfully.');
+            },
+            error: function (error) {
+                console.error("Error: ", error);
+                $('#action-success-result').text('');
+
+                if (error.responseJSON?.title)
+                    showBanner('There was a problem pasting the clipboard contents. Server message: ' + error.responseJSON.title);
+                else if (error.message)
+                    showBanner(`There was a problem renaming the item. Server message: ${error.message}`);
+                else {
+                    showBanner('Unspecified error while renaming the item. Try reloading the page.');
+                }
+            }
+        });
+    } else {
+        console.log("User cancelled the prompt.");
+    }
+}
+
+function deleteItem() {
+    const confirmed = confirm("Are you sure you want to delete this item?");
+
+    if (confirmed) {
+        const itemString = localStorage.getItem("selectedItem");
+        const item = JSON.parse(itemString);
+
+        $.ajax({
+            url: '/directory?' + $.param({ path: item.fullPath }),
+            type: 'DELETE',
+            success: function () {
+                $('#action-success-result').text('Item deleted successfully.');
+
+                if (item.fullPath.endsWith(getPath()))
+                    navigate('up');
+                else
+                    getDirectory();
+            },
+            error: function (error) {
+                console.error("Error: ", error);
+                $('#action-success-result').text('');
+                showBanner(`There was a problem deleting the item. Server message: ${error}`);
+            }
+        });
+    } else {
+        console.log("Action cancelled by the user.");
+    }
 }

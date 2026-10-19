@@ -308,6 +308,25 @@ h2 {
     white-space: nowrap;
 }
 
+/* ---------- Folder sizes ---------- */
+
+/* Folder sizes load after the listing; the placeholder pulses so it reads as "working". */
+.size-pending {
+    animation: size-pending-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes size-pending-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .size-pending {
+        animation: none;
+    }
+}
+
 /* ---------- Narrow screens ---------- */
 
 @media (max-width: 1024px) {
