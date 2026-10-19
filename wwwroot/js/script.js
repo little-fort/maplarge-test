@@ -405,6 +405,11 @@ function updateSelection() {
     updateToolbar();
 }
 
+function clearSelection() {
+    $('#table-data input.row-check').prop('checked', false);
+    updateSelection();
+}
+
 // True while an action request is running, so the toolbar can't send it twice
 let actionRunning = false;
 
@@ -472,6 +477,9 @@ function addSelectionToClipboard(action) {
     const clipboard = getClipboard().filter(item => !paths.has(item.path)).concat(selected);
     clipboard.sort((a, b) => a.name.localeCompare(b.name));
     saveClipboard(clipboard);
+
+    // The items are on the clipboard now, so the checkboxes are free for the next action
+    clearSelection();
 }
 
 function showClipboard() {
