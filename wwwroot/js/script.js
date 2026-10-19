@@ -1,7 +1,14 @@
-﻿// Folder sizes load separately from the listing (see getFolderSizes). Keeping the request
-// lets it be cancelled when the user leaves the folder, which also stops the server's walk.
+﻿// Folder sizes load separately from the listing. Tracked so that it can be cancelled
+// when the user leaves the folder
 let folderSizesRequest = null;
 const sizePlaceholder = '<span class="size-pending" title="Calculating size…">…</span>';
+
+// The listing being loaded. Starting another cancels it
+let directoryRequest = null;
+
+// The folder whose listing is on screen. Actions apply to it rather than to the address bar,
+// which changes as soon as the user navigates
+let shownPath = null;
 
 $(document).ready(function () {
     const path = getPath();
@@ -10,7 +17,7 @@ $(document).ready(function () {
 
     normalizePath();
     getDirectory();
-    updateClipboardDisplay();
+    showClipboard();
 
     // Ensure back/forward clicks update displayed folder
     window.addEventListener('popstate', (event) => {
@@ -27,6 +34,24 @@ $(document).ready(function () {
         else if (this.dataset.type === 'file')
             setFileProperties(this.dataset.path, this);
     });
+
+    // Selection checkboxes
+    $('#table-data').on('change', 'input.row-check', updateSelection);
+    $('#select-all').on('change', function () {
+        $('#table-data input.row-check').prop('checked', this.checked);
+        updateSelection();
+    });
+
+    // Toolbar and clipboard
+    $('#action-copy').on('click', () => addSelectionToClipboard('COPY'));
+    $('#action-cut').on('click', () => addSelectionToClipboard('CUT'));
+    $('#action-paste').on('click', pasteClipboard);
+    $('#action-rename').on('click', renameSelection);
+    $('#action-delete').on('click', deleteSelection);
+    $('#clipboard-list').on('click', 'button[data-index]', function () {
+        removeClipboardItem(Number(this.dataset.index));
+    });
+    $('#clipboard-clear').on('click', () => saveClipboard([]));
 });
 
 function getPath() {
@@ -55,19 +80,23 @@ function updateQueryParam(key, value, allowBack) {
 function getDirectory() {
     const path = getPath();
     folderSizesRequest?.abort(); // the sizes are for the folder being left
-    $.ajax({
+    directoryRequest?.abort();
+    directoryRequest = $.ajax({
         url: '/directory',
         type: 'GET',
         data: { path: path },
         success: function (data) {
             console.log("Success: ", data);
             localStorage.setItem(getPath(), JSON.stringify(data));
+            shownPath = data.path;
             showLocation(path);
             showContents(data.contents);
             setProperties(data.directory);
             getFolderSizes(path);
         },
-        error: function (error) {
+        error: function (error, status) {
+            if (status === 'abort')
+                return; // replaced by a newer request
             console.error("Error: ", error);
             const problem = error.status === 404 ? "was not found on the server" : "could not be loaded";
 
@@ -104,7 +133,7 @@ function getFolderSizes(path) {
 function showFolderSizes(data) {
     const sizes = new Map((data ? data.folders : []).map(folder => [folder.name, folder]));
 
-    $('#table-data a[data-type="folder"]').each(function () {
+    $('#table-data input.row-check[data-type="folder"]').each(function () {
         const folder = sizes.get(this.dataset.name);
         const cell = $(this).closest('tr').find('td.col-size');
         if (folder && folder.size !== null)
@@ -142,9 +171,13 @@ function showLocation(path) {
     $('#location-path').text(path);
 }
 
-function showBanner(message) {
-    $('#banner').prop('hidden', false);
+// Shows a message above the listing
+function showBanner(message, kind = 'error', items = []) {
+    $('#banner').toggleClass('banner-success', kind === 'success').prop('hidden', false);
     $('#banner-message').text(message);
+    $('#banner-list')
+        .html(items.map(item => `<li>${htmlEncode(item)}</li>`).join(''))
+        .prop('hidden', items.length === 0);
 }
 
 function hideBanner() {
@@ -158,6 +191,7 @@ function showContents(dir) {
     if (path !== '/') {
         tableRows += `
             <tr>
+                <td class="col-select"></td>
                 <td class="col-icon">📁</td>
                 <td class="col-name"><a onclick="navigate('up');">.. (parent directory)</a></td>
                 <td class="col-type"></td>
@@ -168,13 +202,19 @@ function showContents(dir) {
     }
 
     $.each(dir, function (index, object) {
-        const objectIcon = object.type === 0 ? '📁' : '';
+        const objectIcon = object.isLink ? '🔗' : object.type === 0 ? '📁' : '';
         const objectType = object.type === 0 ? 'folder' : 'file';
-        const navLink = `<a data-type="${objectType}" data-name="${htmlEncode(object.name)}" data-path="${htmlEncode(object.fullPath)}">${htmlEncode(object.name)}</a>`;
+        const name = htmlEncode(object.name);
+        // The server doesn't open links, so a linked folder isn't clickable
+        const navLink = object.isLink && object.type === 0
+            ? `<span class="link-name" title="Links aren't opened, so browsing stays inside this folder.">${name}</span>`
+            : `<a data-type="${objectType}" data-name="${name}" data-path="${htmlEncode(object.fullPath)}">${name}</a>`;
+        const checkbox = `<input type="checkbox" class="row-check" aria-label="Select ${name}" data-name="${name}" data-type="${objectType}" data-extension="${htmlEncode(object.extension)}" data-link="${object.isLink}">`;
         const localDate = (new Date(object.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
         const objectSize = object.type === 0 ? sizePlaceholder : object.displaySize;
         tableRows += `
             <tr>
+                <td class="col-select"><label class="select-cell">${checkbox}</label></td>
                 <td class="col-icon">${objectIcon}</td>
                 <td class="col-name">${navLink}</td>
                 <td class="col-type">${htmlEncode(object.extension)}</td>
@@ -185,10 +225,11 @@ function showContents(dir) {
     })
 
     $('#table-data tbody').html(tableRows);
+    updateSelection();
 }
 
 function setFileProperties(fullPath, link) {
-    const data = localStorage.getItem(getPath());
+    const data = localStorage.getItem(shownPath);
     if (data) {
         console.log("Retrieving properties for: " + fullPath);
         const directory = JSON.parse(data);
@@ -241,7 +282,6 @@ function setProperties(item) {
     }
 
     $('#properties-data').html(tableRows);
-    localStorage.setItem("selectedItem", JSON.stringify(item));
 }
 
 function getFileTypeIcon(extension) {
@@ -334,189 +374,254 @@ function getErrorMessage(xhr) {
     return httpErrorMessages[xhr.status] ?? body?.title ?? `The request failed (HTTP ${xhr.status}).`;
 }
 
-// Clears the results of the previous action so they aren't mistaken for this one's
-function clearActionResults() {
-    hideBanner();
-    $('#action-success-result').text('');
-    $('#action-failed-message').text('');
-    $('#action-failed-list ul').empty();
+// Selection
+
+// The checked rows, in listing order
+function getSelectedItems() {
+    return $('#table-data input.row-check:checked').map(function () {
+        return {
+            name: this.dataset.name,
+            type: this.dataset.type,
+            extension: this.dataset.extension,
+            isLink: this.dataset.link === 'true'
+        };
+    }).get();
 }
 
-// Lists the clipboard items the server couldn't paste
-function showFailedItems(names) {
-    if (names.length === 1) {
-        $('#action-failed-message').text(`${names[0]} could not be pasted into the specified directory.`);
+// Keeps the select-all box, row highlights, count and toolbar in step with the checkboxes
+function updateSelection() {
+    const boxes = $('#table-data input.row-check');
+    const checked = boxes.filter(':checked').length;
+
+    boxes.each(function () {
+        $(this).closest('tr').toggleClass('is-checked', this.checked);
+    });
+    $('#select-all').prop({
+        checked: boxes.length > 0 && checked === boxes.length,
+        indeterminate: checked > 0 && checked < boxes.length,
+        disabled: boxes.length === 0
+    });
+    $('#selection-count').text(checked > 0 ? `${checked} selected` : '');
+    updateToolbar();
+}
+
+// True while an action request is running, so the toolbar can't send it twice
+let actionRunning = false;
+
+function setActionRunning(running) {
+    actionRunning = running;
+    updateToolbar();
+}
+
+function updateToolbar() {
+    const nothingSelected = $('#table-data input.row-check:checked').length === 0;
+    $('#action-copy, #action-cut, #action-rename, #action-delete').prop('disabled', actionRunning || nothingSelected);
+    $('#action-paste').prop('disabled', actionRunning || shownPath === null || getClipboard().length === 0);
+}
+
+// Browser path of an item in the folder being shown
+function childPath(name) {
+    return (shownPath === '/' ? '' : shownPath) + '/' + name;
+}
+
+function describeItems(items) {
+    return items.length === 1 ? `"${items[0].name}"` : `${items.length} items`;
+}
+
+// Shows what an action did. Failed items are listed with the server's reason for each.
+function showActionResult(result, verb) {
+    if (result.failed.length === 0) {
+        showBanner(`${result.message}.`, 'success');
         return;
     }
 
-    $('#action-failed-message').text('The following items could not be pasted into the specified directory:');
-    $('#action-failed-list ul').html(names.map(name => `<li>${htmlEncode(name)}</li>`).join(''));
+    const count = result.failed.length;
+    const summary = `${count} ${count === 1 ? "item couldn't" : "items couldn't"} be ${verb}:`;
+    showBanner(result.message ? `${result.message}. ${summary}` : summary, 'error',
+        result.failed.map(failure => `${failure.name}: ${failure.reason}`));
 }
 
-// Item actions
+// Clipboard
+
 function getClipboard() {
     const clipboardString = localStorage.getItem("clipboard");
     const clipboard = clipboardString ? JSON.parse(clipboardString) : [];
     return clipboard;
 }
-function addItemToClipboard(action) {
-    const clipboard = getClipboard();
-    const itemString = localStorage.getItem("selectedItem");
 
-    if (!itemString) {
-        showBanner("There was an error updating the clipboard. Reload the page and try again.");
-        return;
-    }
-
-    const item = JSON.parse(itemString);
-    item.action = action;
-
-    if (!clipboard.some(clip => clip.fullPath == item.fullPath)) {
-        clipboard.push(item);
-        clipboard.sort((a, b) => a.name.localeCompare(b.name));
+function saveClipboard(clipboard) {
+    if (clipboard.length > 0)
         localStorage.setItem("clipboard", JSON.stringify(clipboard));
+    else
+        localStorage.removeItem("clipboard");
 
-        updateClipboardDisplay();
-    }
+    showClipboard();
 }
+
+function addSelectionToClipboard(action) {
+    const selected = getSelectedItems().map(item => ({
+        name: item.name,
+        path: childPath(item.name),
+        type: item.type,
+        extension: item.extension,
+        action: action
+    }));
+
+    // Adding an item again replaces its earlier entry, so it can switch between copy and cut
+    const paths = new Set(selected.map(item => item.path));
+    const clipboard = getClipboard().filter(item => !paths.has(item.path)).concat(selected);
+    clipboard.sort((a, b) => a.name.localeCompare(b.name));
+    saveClipboard(clipboard);
+}
+
+function showClipboard() {
+    const clipboard = getClipboard();
+
+    const listItems = clipboard.map((item, index) => {
+        const folder = item.path.slice(0, item.path.lastIndexOf('/')) || '/';
+        return `
+            <li class="clipboard-item">
+                <span class="clipboard-icon" aria-hidden="true">${getFileTypeIcon(item.extension)}</span>
+                <span class="clipboard-text">
+                    <span class="clipboard-name">${htmlEncode(item.name)}</span>
+                    <span class="clipboard-source">${htmlEncode(folder)}</span>
+                </span>
+                <span class="clipboard-action">${item.action === 'CUT' ? 'Cut' : 'Copy'}</span>
+                <button type="button" class="icon-button" data-index="${index}" aria-label="Remove ${htmlEncode(item.name)} from the clipboard" title="Remove">&times;</button>
+            </li>
+        `;
+    });
+
+    $('#clipboard-list').html(listItems.join(''));
+    $('#clipboard-count').text(clipboard.length);
+    $('#clipboard').prop('hidden', clipboard.length === 0);
+    updateToolbar();
+}
+
+function removeClipboardItem(index) {
+    const clipboard = getClipboard();
+    clipboard.splice(index, 1);
+    saveClipboard(clipboard);
+}
+
+// Item actions
 
 function pasteClipboard() {
     const clipboard = getClipboard();
-    const copyItems = clipboard.filter(object => object.action === 'COPY');
-    const cutItems = clipboard.filter(object => object.action === 'CUT');
-    const overwrite = $('#overwrite').prop('checked') ? 'true' : 'false'
+    if (clipboard.length === 0)
+        return;
 
-    clearActionResults();
+    const copyItems = clipboard.filter(item => item.action === 'COPY').map(item => item.path);
+    const cutItems = clipboard.filter(item => item.action === 'CUT').map(item => item.path);
+    const overwrite = $('#overwrite').prop('checked');
+
+    hideBanner();
+    setActionRunning(true);
     $.ajax({
         url: '/directory/paste?' + $.param({ overwrite: overwrite }),
         type: 'POST',
         contentType: 'application/json',
         dataType: 'json',
-        data: JSON.stringify({ path: getPath(), copy: copyItems, cut: cutItems }),
-        success: function (data) {
-            console.log("Success: ", data);
+        data: JSON.stringify({ path: shownPath, copy: copyItems, cut: cutItems }),
+        success: function (result) {
+            console.log("Success: ", result);
+            // Drop the items that were pasted and keep the ones that failed, so they can be tried again
+            const sentPaths = new Set(clipboard.map(item => item.path));
+            const failedPaths = new Set(result.failed.map(failure => failure.path));
+            saveClipboard(getClipboard().filter(item => !sentPaths.has(item.path) || failedPaths.has(item.path)));
+            showActionResult(result, 'pasted');
             getDirectory();
-            localStorage.removeItem('clipboard');
-            updateClipboardDisplay();
-            $('#action-success-result').text(data.message);
         },
         error: function (error) {
             console.error("Error: ", error);
-            const result = getErrorBody(error);
-
-            if (result && Array.isArray(result.failed) && result.failed.length > 0) {
-                // Some items failed. Any that succeeded are already in place, so show
-                // their count and refresh the listing.
-                $('#action-success-result').text(result.message);
-                showFailedItems(result.failed);
-                getDirectory();
-            }
-            else
-                showBanner(`The clipboard couldn't be pasted. ${getErrorMessage(error)}`);
+            showBanner(`The clipboard couldn't be pasted. ${getErrorMessage(error)}`);
+        },
+        complete: function () {
+            setActionRunning(false);
         }
     });
 }
 
-function updateClipboardDisplay() {
-    let tableRows = '';
-    const clipboard = getClipboard();
+function renameSelection() {
+    const items = getSelectedItems();
+    if (items.length === 0)
+        return;
 
-    if (clipboard && clipboard.length > 0) {
-        $.each(clipboard, function (index, object) {
-            const objectIcon = getFileTypeIcon(object.extension);
-            tableRows += `
-            <tr>
-                <td class="col-icon">${objectIcon}</td>
-                <td class="col-name">${object.name}</td>
-                <td>${object.action}</td>
-                <td onclick="removeClipboardItem('${index}')">x</td>
-            </tr>
-        `;
-        })
+    // Several items share the new name, so the server numbers them
+    const question = items.length === 1
+        ? `Rename "${items[0].name}" to:`
+        : `Rename ${items.length} items (numbered separately). New name:`;
 
-        $('#clipboard-display tbody').html(tableRows);
-        $('#clipboard-overwrite').show();
-    }
-    else {
-        $('#clipboard-display tbody').html('');
-        $('#clipboard-overwrite').hide();
-    }
-}
-
-function removeClipboardItem(index) {
-    const clipboard = getClipboard();
-
-    if (clipboard.length === 0 && index === 0)
-        localStorage.removeItem('clipboard');
-    else {
-        clipboard.splice(index, 1);
-        localStorage.setItem("clipboard", JSON.stringify(clipboard));
-    }
-
-    updateClipboardDisplay();
-}
-
-function renameItem() {
-    const minLength = 1;
-    let input = null;
-
+    let newName = null;
     do {
-        input = prompt(`Enter desired file name:`);
+        newName = prompt(question, items.length === 1 ? items[0].name : '');
+        if (newName === null)
+            return; // cancelled
+        newName = newName.trim();
+    } while (newName.length === 0);
 
-        if (input === null) {
-            break;
+    if (items.length === 1 && newName === items[0].name)
+        return; // unchanged
+
+    hideBanner();
+    setActionRunning(true);
+    $.ajax({
+        url: '/directory/rename',
+        type: 'POST',
+        contentType: 'application/json',
+        dataType: 'json',
+        data: JSON.stringify({ path: shownPath, names: items.map(item => item.name), newName: newName }),
+        success: function (result) {
+            showActionResult(result, 'renamed');
+            getDirectory();
+        },
+        error: function (error) {
+            console.error("Error: ", error);
+            showBanner(`${describeItems(items)} couldn't be renamed. ${getErrorMessage(error)}`);
+        },
+        complete: function () {
+            setActionRunning(false);
         }
-    } while (input.trim().length < minLength);
-
-    if (input !== null) {
-        const itemString = localStorage.getItem("selectedItem");
-        const item = JSON.parse(itemString);
-
-        clearActionResults();
-        $.ajax({
-            url: '/directory/rename',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ path: item.fullPath, name: input.trim() }),
-            success: function () {
-                getDirectory();
-                $('#action-success-result').text('Item renamed successfully.');
-            },
-            error: function (error) {
-                console.error("Error: ", error);
-                showBanner(`"${item.name}" couldn't be renamed. ${getErrorMessage(error)}`);
-            }
-        });
-    } else {
-        console.log("User cancelled the prompt.");
-    }
+    });
 }
 
-function deleteItem() {
-    const confirmed = confirm("Are you sure you want to delete this item?");
+function deleteSelection() {
+    const items = getSelectedItems();
+    if (items.length === 0)
+        return;
 
-    if (confirmed) {
-        const itemString = localStorage.getItem("selectedItem");
-        const item = JSON.parse(itemString);
+    // Spell out what goes, since a folder takes everything in it with it
+    const describe = item => item.isLink ? `${item.name} (link only)`
+        : item.type === 'folder' ? `${item.name} (incl. all contents)`
+        : item.name;
+    const listed = items.slice(0, 10).map(item => `• ${describe(item)}`);
+    if (items.length > 10)
+        listed.push(`• ...and ${items.length - 10} more`);
 
-        clearActionResults();
-        $.ajax({
-            url: '/directory?' + $.param({ path: item.fullPath }),
-            type: 'DELETE',
-            success: function () {
-                $('#action-success-result').text('Item deleted successfully.');
+    const question = items.length === 1
+        ? `Delete ${describe(items[0])}?\n\nThis can't be undone.`
+        : `Delete these ${items.length} items?\n\n${listed.join('\n')}\n\nThis can't be undone.`;
+    if (!confirm(question))
+        return;
 
-                if (item.fullPath.endsWith(getPath()))
-                    navigate('up');
-                else
-                    getDirectory();
-            },
-            error: function (error) {
-                console.error("Error: ", error);
-                showBanner(`"${item.name}" couldn't be deleted. ${getErrorMessage(error)}`);
-            }
-        });
-    } else {
-        console.log("Action cancelled by the user.");
-    }
+    hideBanner();
+    setActionRunning(true);
+    $.ajax({
+        url: '/directory/delete',
+        type: 'POST',
+        contentType: 'application/json',
+        dataType: 'json',
+        data: JSON.stringify({ path: shownPath, names: items.map(item => item.name) }),
+        success: function (result) {
+            showActionResult(result, 'deleted');
+            getDirectory();
+        },
+        error: function (error) {
+            console.error("Error: ", error);
+            showBanner(`${describeItems(items)} couldn't be deleted. ${getErrorMessage(error)}`);
+        },
+        complete: function () {
+            setActionRunning(false);
+        }
+    });
 }

@@ -1,5 +1,6 @@
 using System.IO.Enumeration;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Primitives;
 
 namespace TestProject.Services
 {
@@ -15,6 +16,9 @@ namespace TestProject.Services
         };
 
         private readonly IMemoryCache _cache;
+
+        // Cancelled by Clear, which expires every cached size at once
+        private CancellationTokenSource _clearSource = new();
 
         public DirectorySizeService(IMemoryCache cache)
         {
@@ -34,9 +38,20 @@ namespace TestProject.Services
             if (_cache.TryGetValue(cacheKey, out long size))
                 return size;
 
+            // Taken before the walk: if Clear runs while it's walking, the result is stale, and
+            // tying it to the already-cancelled token stops it from being cached
+            var clearToken = new CancellationChangeToken(_clearSource.Token);
             size = CalculateSize(folder.FullName, cancellationToken);
-            _cache.Set(cacheKey, size, CacheDuration);
+            _cache.Set(cacheKey, size, new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(CacheDuration)
+                .AddExpirationToken(clearToken));
             return size;
+        }
+
+        public void Clear()
+        {
+            // Not disposed: a size calculation may still be reading the old source's token
+            Interlocked.Exchange(ref _clearSource, new CancellationTokenSource()).Cancel();
         }
 
         private static long CalculateSize(string path, CancellationToken cancellationToken)

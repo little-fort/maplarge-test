@@ -13,6 +13,7 @@ namespace TestProject
             builder.Services.AddControllers();
             builder.Services.AddMemoryCache();
             builder.Services.AddSingleton<DirectorySizeService>();
+            builder.Services.AddSingleton<FileActionService>();
 
             var app = builder.Build();
 

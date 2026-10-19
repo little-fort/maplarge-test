@@ -39,10 +39,14 @@ namespace TestProject.Helpers
             return true;
         }
 
+        /// <summary>
+        /// True for a single item name (not a path)
+        /// </summary>
         public static bool IsValidFileName(string name) =>
             !string.IsNullOrWhiteSpace(name)
             && name == Path.GetFileName(name)
             && name is not "." and not ".."
-            && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+            && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+            && !(OperatingSystem.IsWindows() && (name.EndsWith('.') || name.EndsWith(' '))); // Windows silently drops a trailing dot or space, so "a." would become "a"
     }
 }

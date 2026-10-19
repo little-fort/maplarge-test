@@ -16,7 +16,10 @@
     <main class="flex-container">
         <div class="left-box">
             <div id="banner" class="banner" hidden>
-                <p id="banner-message" class="banner-message" role="alert"></p>
+                <div class="banner-body" role="alert">
+                    <p id="banner-message" class="banner-message"></p>
+                    <ul id="banner-list" class="banner-list" hidden></ul>
+                </div>
                 <button type="button" id="banner-close" class="banner-close" aria-label="Dismiss" title="Dismiss">&times;</button>
             </div>
             <section class="panel" aria-labelledby="location-label location-path">
@@ -24,8 +27,18 @@
                     <span id="location-label" class="location-label">Location</span>
                     <span id="location-path" class="location-path"></span>
                 </div>
+                <div class="toolbar" role="group" aria-label="Actions for the selected items">
+                    <button type="button" id="action-copy" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">🗃️</span>Copy</button>
+                    <button type="button" id="action-cut" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">✂️</span>Cut</button>
+                    <button type="button" id="action-paste" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">📋</span>Paste</button>
+                    <span class="toolbar-divider" aria-hidden="true"></span>
+                    <button type="button" id="action-rename" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">🏷️</span>Rename</button>
+                    <button type="button" id="action-delete" class="tool-button tool-button-danger" disabled><span class="tool-icon" aria-hidden="true">🗑️</span>Delete</button>
+                    <span id="selection-count" class="selection-count"></span>
+                </div>
                 <table id="table-data">
                     <colgroup>
+                        <col class="col-select" />
                         <col class="col-icon" />
                         <col class="col-name" />
                         <col class="col-type" />
@@ -34,6 +47,7 @@
                     </colgroup>
                     <thead>
                         <tr>
+                            <th class="col-select"><label class="select-cell"><input type="checkbox" id="select-all" aria-label="Select all items" /></label></th>
                             <th class="col-name" colspan="2">Name</th>
                             <th class="col-type">Type</th>
                             <th class="col-modified">Modified</th>
@@ -44,35 +58,31 @@
                 </table>
             </section>
         </div>
-        <aside class="right-box panel" aria-labelledby="properties-heading">
-            <h2 id="properties-heading" class="panel-header">Properties</h2>
-            <div class="properties-body">
-                <div id="properties-icon"></div>
-                <div id="properties-name"></div>
-                <table id="properties-data"></table>
-            </div>
-            <table id="item-options" style="padding:5px;">
-                <tr>
-                    <td><a onclick="addItemToClipboard('COPY');">🗃️<br/>Copy</a></td>
-                    <td><a onclick="addItemToClipboard('CUT');">✂️<br />Cut</a></td>
-                    <td><a onclick="pasteClipboard();">📋<br />Paste</a></td>
-                    <td><a onclick="renameItem();">🏷️<br />Rename</a></td>
-                    <td><a onclick="deleteItem();">🗑️<br />Delete</a></td>
-                </tr>
-            </table>
-            <table id="clipboard-display" style="padding:5px;">
-                <tbody></tbody>
-            </table>
-            <div id="clipboard-overwrite">
-                <input type="checkbox" id="overwrite" name="overwrite" value="true">
-                <label for="overwrite">Overwrite existing</label>
-            </div>
-            <div id="action-success-result"></div>
-            <div id="action-failed-result">
-                <div id="action-failed-message"></div>
-                <div id="action-failed-list"><ul></ul></div>
-            </div>
-        </aside>
+        <div class="right-box">
+            <aside class="panel" aria-labelledby="properties-heading">
+                <h2 id="properties-heading" class="panel-header">Properties</h2>
+                <div class="properties-body">
+                    <div id="properties-icon"></div>
+                    <div id="properties-name"></div>
+                    <table id="properties-data"></table>
+                </div>
+            </aside>
+            <section id="clipboard" class="panel" aria-labelledby="clipboard-heading" hidden>
+                <div class="panel-header">
+                    <h2 id="clipboard-heading">Clipboard</h2>
+                    <span id="clipboard-count" class="panel-count"></span>
+                    <button type="button" id="clipboard-clear" class="text-button">Clear</button>
+                </div>
+                <ul id="clipboard-list" class="clipboard-list"></ul>
+                <label class="clipboard-option">
+                    <input type="checkbox" id="overwrite" />
+                    <span>
+                        Overwrite existing items
+                        <span class="clipboard-hint">Files with the same name are replaced; folders are merged.</span>
+                    </span>
+                </label>
+            </section>
+        </div>
     </main>
 </body>
 </html>

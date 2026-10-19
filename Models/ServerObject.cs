@@ -10,6 +10,9 @@
         public ServerObjectType Type { get; set; }
         public string Extension { get; set; } = string.Empty;
         public string CountDisplay { get; set; } = string.Empty;
+
+        /// <summary>True for a junction or symbolic link, which can't be opened or copied.</summary>
+        public bool IsLink { get; set; }
     }
 
     public enum ServerObjectType
