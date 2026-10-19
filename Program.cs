@@ -1,3 +1,5 @@
+using TestProject.Services;
+
 namespace TestProject 
 {
     public class Program 
@@ -9,6 +11,8 @@ namespace TestProject
             // Add services to the container.
 
             builder.Services.AddControllers();
+            builder.Services.AddMemoryCache();
+            builder.Services.AddSingleton<DirectorySizeService>();
 
             var app = builder.Build();
 

@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using TestProject.Helpers;
 using TestProject.Models;
+using TestProject.Services;
 
 namespace TestProject.Controllers 
 {
@@ -9,33 +11,24 @@ namespace TestProject.Controllers
     public class DirectoryController : ControllerBase 
     {
 
-        private readonly ILogger<DirectoryController> _logger;
+        // Lists a folder's own files and subfolders, including hidden and system ones, matching what
+        // Directory.GetDirectories and Directory.GetFiles return for the listing in Get.
+        private static readonly EnumerationOptions ContentsOptions = new() { AttributesToSkip = 0 };
 
-        public DirectoryController(ILogger<DirectoryController> logger) 
+        private readonly ILogger<DirectoryController> _logger;
+        private readonly DirectorySizeService _directorySizes;
+
+        public DirectoryController(ILogger<DirectoryController> logger, DirectorySizeService directorySizes)
         {
             _logger = logger;
+            _directorySizes = directorySizes;
         }
 
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] string path) 
         {
-            var app = Environment.CurrentDirectory;
-            var fullPath = Path.GetFullPath(Path.Combine(app, path.TrimStart('/').TrimStart('\\')));
-            string directory;
-            
-            // Validate path
-            if (!MiscHelpers.IsPathUnderAppRoot(fullPath) || (!Directory.Exists(fullPath) && !System.IO.File.Exists(fullPath)))
+            if (!TryResolveDirectory(path, out var directory))
                 return NotFound();
-
-            // Get data to serve direct file request
-            if (System.IO.File.Exists(fullPath))
-            {
-                var file = new FileInfo(fullPath);
-                // TODO: Infer path for directory browser and render file preview
-                directory = file.Directory?.FullName ?? "/";
-            }
-            else
-                directory = fullPath;
 
             // Compile folder content data
             var dto = new List<ServerObject>();
@@ -84,6 +77,82 @@ namespace TestProject.Controllers
             current.CountDisplay = string.Join(", ", counts);
 
             return Ok(new { directory = current, contents = dto });
+        }
+
+        /// <summary>
+        /// Returns the size of each subfolder in a directory, plus the directory's total size.
+        /// This is separate from <see cref="Get"/> because it walks every subfolder, which can take
+        /// seconds for a large tree; the page shows the listing first and fills these in after.
+        /// </summary>
+        [HttpGet("sizes")]
+        public IActionResult GetSizes([FromQuery] string path, CancellationToken cancellationToken)
+        {
+            if (!TryResolveDirectory(path, out var directory))
+                return NotFound();
+
+            var stopwatch = Stopwatch.StartNew();
+            var result = new DirectorySizes();
+
+            foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos("*", ContentsOptions))
+            {
+                if (entry is FileInfo file)
+                {
+                    result.Size += file.Length;
+                    continue;
+                }
+
+                var folder = new FolderSize { Name = entry.Name };
+                try
+                {
+                    folder.Size = _directorySizes.GetSize((DirectoryInfo)entry, cancellationToken);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // For example, the folder was deleted after the listing was read. Report the rest.
+                    _logger.LogWarning(ex, "Could not calculate the size of {Folder}", entry.FullName);
+                }
+
+                if (folder.Size is long size)
+                {
+                    result.Size += size;
+                    folder.DisplaySize = MiscHelpers.FormatDisplaySize(size);
+                }
+                result.Folders.Add(folder);
+            }
+
+            result.DisplaySize = MiscHelpers.FormatDisplaySize(result.Size);
+            _logger.LogDebug("Calculated folder sizes for {Directory} in {ElapsedMs} ms", directory, stopwatch.ElapsedMilliseconds);
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Maps a path from the browser (for example "/Controllers") to a folder under the app root.
+        /// A path to a file resolves to the folder that contains it. Returns false when the path is
+        /// outside the root or doesn't exist.
+        /// </summary>
+        private static bool TryResolveDirectory(string path, out string directory)
+        {
+            var app = Environment.CurrentDirectory;
+            var fullPath = Path.GetFullPath(Path.Combine(app, path.TrimStart('/').TrimStart('\\')));
+            directory = fullPath;
+
+            // Validate path
+            if (!MiscHelpers.IsPathUnderAppRoot(fullPath))
+                return false;
+
+            if (Directory.Exists(fullPath))
+                return true;
+
+            // Get data to serve direct file request
+            if (System.IO.File.Exists(fullPath))
+            {
+                // TODO: Infer path for directory browser and render file preview
+                directory = Path.GetDirectoryName(fullPath)!; // only null for a drive root, which isn't a file
+                return true;
+            }
+
+            return false;
         }
     }
 }
