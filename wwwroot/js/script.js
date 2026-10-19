@@ -284,6 +284,75 @@ function htmlEncode(str) {
     return retval;
 }
 
+// Request errors
+
+// Used when an error response doesn't carry a message worth showing
+const httpErrorMessages = {
+    400: "The request wasn't valid.",
+    403: "That action isn't allowed.",
+    404: "The item couldn't be found. It may have been moved or deleted.",
+    409: "An item with that name already exists.",
+    500: "Something went wrong on the server.",
+};
+
+// Returns the body of a failed request: an object for JSON, a string for anything else,
+// or null when there's no body.
+function getErrorBody(xhr) {
+    if (xhr.responseJSON !== undefined)
+        return xhr.responseJSON;
+    if (!xhr.responseText)
+        return null;
+
+    try {
+        return JSON.parse(xhr.responseText);
+    }
+    catch {
+        return xhr.responseText;
+    }
+}
+
+// Builds a message for the user from a failed request
+function getErrorMessage(xhr) {
+    if (xhr.status === 0)
+        return "The server couldn't be reached. Check your connection and try again.";
+
+    const body = getErrorBody(xhr);
+    if (body && typeof body === 'object') {
+        const validationMessages = body.errors ? Object.values(body.errors).flat() : [];
+        if (validationMessages.length > 0)
+            return validationMessages.join(' ');
+        if (body.detail)
+            return body.detail;
+    }
+    else if (typeof body === 'string') {
+        // A short single line is a message; anything longer is a stack trace or an HTML page
+        const text = body.trim();
+        if (text && text.length <= 300 && !/[\r\n]/.test(text) && !text.startsWith('<'))
+            return text;
+    }
+
+    return httpErrorMessages[xhr.status] ?? body?.title ?? `The request failed (HTTP ${xhr.status}).`;
+}
+
+// Clears the results of the previous action so they aren't mistaken for this one's
+function clearActionResults() {
+    hideBanner();
+    $('#action-success-result').text('');
+    $('#action-failed-message').text('');
+    $('#action-failed-list ul').empty();
+}
+
+// Lists the clipboard items the server couldn't paste
+function showFailedItems(names) {
+    if (names.length === 1) {
+        $('#action-failed-message').text(`${names[0]} could not be pasted into the specified directory.`);
+        return;
+    }
+
+    $('#action-failed-message').text('The following items could not be pasted into the specified directory:');
+    $('#action-failed-list ul').html(names.map(name => `<li>${htmlEncode(name)}</li>`).join(''));
+}
+
 // Item actions
 function getClipboard() {
     const clipboardString = localStorage.getItem("clipboard");
@@ -315,8 +384,9 @@ function pasteClipboard() {
     const clipboard = getClipboard();
     const copyItems = clipboard.filter(object => object.action === 'COPY');
     const cutItems = clipboard.filter(object => object.action === 'CUT');
-    const overwrite = $('#myCheckbox').prop('checked') ? 'true' : 'false'
+    const overwrite = $('#overwrite').prop('checked') ? 'true' : 'false'
 
+    clearActionResults();
     $.ajax({
         url: '/directory/paste?' + $.param({ overwrite: overwrite }),
         type: 'POST',
@@ -329,33 +399,20 @@ function pasteClipboard() {
             localStorage.removeItem('clipboard');
             updateClipboardDisplay();
             $('#action-success-result').text(data.message);
-            $('#action-failed-message').text('');
-            $('#action-failed-list ul').html('');
         },
         error: function (error) {
             console.error("Error: ", error);
-            
-            $('#action-success-result').text(error.message);
+            const result = getErrorBody(error);
 
-            if (error.failed) {
-                if (error.failed.length == 0)
-                    showBanner(`There was a problem pasting the clipboard contents. Try reloading the page.`);
-                else if (error.failed.length == 1)
-                    $('#action-failed-message').text(`${error.failed[0]} could not be pasted into the specified directory.`);
-                else {
-                    $('#action-failed-message').text('The following items could not be pasted into the specified directory:');
-
-                    let listItems = '';
-                    $.each(error.failed, function (index, name) {
-                        listItems += `<li>${htmlEncode(name)}</li>`;
-                    });
-
-                    $('#action-failed-list ul').html(listItems);
-                }
+            if (result && Array.isArray(result.failed) && result.failed.length > 0) {
+                // Some items failed. Any that succeeded are already in place, so show
+                // their count and refresh the listing.
+                $('#action-success-result').text(result.message);
+                showFailedItems(result.failed);
+                getDirectory();
             }
-            else if (error.responseJSON.title) {
-                showBanner('There was a problem pasting the clipboard contents. Server message: ' + error.responseJSON.title);
-            }
+            else
+                showBanner(`The clipboard couldn't be pasted. ${getErrorMessage(error)}`);
         }
     });
 }
@@ -415,6 +472,7 @@ function renameItem() {
         const itemString = localStorage.getItem("selectedItem");
         const item = JSON.parse(itemString);
 
+        clearActionResults();
         $.ajax({
             url: '/directory/rename',
             type: 'POST',
@@ -426,15 +484,7 @@ function renameItem() {
             },
             error: function (error) {
                 console.error("Error: ", error);
-                $('#action-success-result').text('');
-
-                if (error.responseJSON?.title)
-                    showBanner('There was a problem pasting the clipboard contents. Server message: ' + error.responseJSON.title);
-                else if (error.message)
-                    showBanner(`There was a problem renaming the item. Server message: ${error.message}`);
-                else {
-                    showBanner('Unspecified error while renaming the item. Try reloading the page.');
-                }
+                showBanner(`"${item.name}" couldn't be renamed. ${getErrorMessage(error)}`);
             }
         });
     } else {
@@ -449,6 +499,7 @@ function deleteItem() {
         const itemString = localStorage.getItem("selectedItem");
         const item = JSON.parse(itemString);
 
+        clearActionResults();
         $.ajax({
             url: '/directory?' + $.param({ path: item.fullPath }),
             type: 'DELETE',
@@ -462,8 +513,7 @@ function deleteItem() {
             },
             error: function (error) {
                 console.error("Error: ", error);
-                $('#action-success-result').text('');
-                showBanner(`There was a problem deleting the item. Server message: ${error}`);
+                showBanner(`"${item.name}" couldn't be deleted. ${getErrorMessage(error)}`);
             }
         });
     } else {

@@ -170,6 +170,8 @@ namespace TestProject.Controllers
                 try
                 {
                     var target = Path.Combine(directory, item.Name);
+                    if (!MiscHelpers.IsValidFileName(item.FullPath) || !MiscHelpers.IsValidFileName(target))
+                        throw new InvalidOperationException("Invalid path.");
                     if (!MiscHelpers.IsPathUnderAppRoot(item.FullPath) || !MiscHelpers.IsPathUnderAppRoot(target))
                         throw new UnauthorizedAccessException("The source and target paths must be within the application directory.");
 
@@ -178,12 +180,12 @@ namespace TestProject.Controllers
                     else if (Directory.Exists(item.FullPath) && Directory.Exists(target))
                     {
                         // Create all target subdirectories upfront
-                        foreach (string dirPath in Directory.GetDirectories(action.Path, "*", SearchOption.AllDirectories))
-                            Directory.CreateDirectory(dirPath.Replace(action.Path, target));
+                        foreach (string dirPath in Directory.GetDirectories(item.FullPath, "*", SearchOption.AllDirectories))
+                            Directory.CreateDirectory(dirPath.Replace(item.FullPath, target));
 
                         // Copy all files, overwriting existing ones
-                        foreach (string newPath in Directory.GetFiles(action.Path, "*.*", SearchOption.AllDirectories))
-                            System.IO.File.Copy(newPath, newPath.Replace(action.Path, target), overwrite);
+                        foreach (string newPath in Directory.GetFiles(item.FullPath, "*.*", SearchOption.AllDirectories))
+                            System.IO.File.Copy(newPath, newPath.Replace(item.FullPath, target), overwrite);
                     }
                     else
                         throw new InvalidOperationException("The operation's source and destination are mismatched.");
@@ -202,6 +204,8 @@ namespace TestProject.Controllers
                 try
                 {
                     var target = Path.Combine(directory, item.Name);
+                    if (!MiscHelpers.IsValidFileName(item.FullPath) || !MiscHelpers.IsValidFileName(target))
+                        throw new InvalidOperationException("Invalid path.");
                     if (!MiscHelpers.IsPathUnderAppRoot(action.Path) || !MiscHelpers.IsPathUnderAppRoot(target))
                         throw new UnauthorizedAccessException("The source and target paths must be within the application directory.");
 
@@ -210,15 +214,15 @@ namespace TestProject.Controllers
                     else if (Directory.Exists(item.FullPath) && Directory.Exists(target))
                     {
                         // Create all target subdirectories upfront
-                        foreach (string dirPath in Directory.GetDirectories(action.Path, "*", SearchOption.AllDirectories))
-                            Directory.CreateDirectory(dirPath.Replace(action.Path, target));
+                        foreach (string dirPath in Directory.GetDirectories(item.FullPath, "*", SearchOption.AllDirectories))
+                            Directory.CreateDirectory(dirPath.Replace(item.FullPath, target));
 
                         // Move all files, overwriting existing ones
-                        foreach (string newPath in Directory.GetFiles(action.Path, "*.*", SearchOption.AllDirectories))
-                            System.IO.File.Move(newPath, newPath.Replace(action.Path, target), overwrite);
+                        foreach (string newPath in Directory.GetFiles(item.FullPath, "*.*", SearchOption.AllDirectories))
+                            System.IO.File.Move(newPath, newPath.Replace(item.FullPath, target), overwrite);
 
                         // Delete the old directory
-                        Directory.Delete(action.Path, true);
+                        Directory.Delete(item.FullPath, true);
                     }
                     else
                         throw new InvalidOperationException("The operation's source and destination are mismatched.");
@@ -258,6 +262,8 @@ namespace TestProject.Controllers
             try
             {
                 var target = Path.Combine(directory, action.Name);
+                if (!MiscHelpers.IsValidFileName(action.Path) || !MiscHelpers.IsValidFileName(target))
+                    throw new InvalidOperationException("Invalid path.");
                 if (!MiscHelpers.IsPathUnderAppRoot(action.Path) || !MiscHelpers.IsPathUnderAppRoot(target))
                     return Forbid("The source and target paths must be within the application directory.");
 
@@ -299,6 +305,8 @@ namespace TestProject.Controllers
 
             try
             {
+                if (!MiscHelpers.IsValidFileName(path))
+                    throw new InvalidOperationException("Invalid path.");
                 if (!MiscHelpers.IsPathUnderAppRoot(path))
                     return Forbid("The target path must be within the application directory.");
 
