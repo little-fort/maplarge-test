@@ -48,6 +48,12 @@ $(document).ready(function () {
     $('#action-paste').on('click', pasteClipboard);
     $('#action-rename').on('click', renameSelection);
     $('#action-delete').on('click', deleteSelection);
+    $('#action-download').on('click', downloadSelection);
+    $('#action-upload').on('click', () => $('#upload-input').trigger('click'));
+    $('#upload-input').on('change', function () {
+        uploadFiles(Array.from(this.files));
+        this.value = ''; // so choosing the same files again still counts as a change
+    });
     $('#clipboard-list').on('click', 'button[data-index]', function () {
         removeClipboardItem(Number(this.dataset.index));
     });
@@ -422,6 +428,8 @@ function updateToolbar() {
     const nothingSelected = $('#table-data input.row-check:checked').length === 0;
     $('#action-copy, #action-cut, #action-rename, #action-delete').prop('disabled', actionRunning || nothingSelected);
     $('#action-paste').prop('disabled', actionRunning || shownPath === null || getClipboard().length === 0);
+    $('#action-download').prop('disabled', nothingSelected);
+    $('#action-upload').prop('disabled', actionRunning || shownPath === null);
 }
 
 // Browser path of an item in the folder being shown
@@ -627,6 +635,94 @@ function deleteSelection() {
         error: function (error) {
             console.error("Error: ", error);
             showBanner(`${describeItems(items)} couldn't be deleted. ${getErrorMessage(error)}`);
+        },
+        complete: function () {
+            setActionRunning(false);
+        }
+    });
+}
+
+function downloadSelection() {
+    const items = getSelectedItems();
+    if (items.length === 0)
+        return;
+
+    if (items.some(item => item.isLink)) {
+        showBanner("Links can't be downloaded. Uncheck them and try again.");
+        return;
+    }
+
+    // The names travel in the address, and the server refuses addresses over about 8,000 characters
+    const url = '/directory/download?' + $.param({ path: shownPath, names: items.map(item => item.name) }, true);
+    if (url.length > maxDownloadUrlLength) {
+        showBanner(`${items.length} items are too many to download at once. Select fewer, or download the folder they're in.`);
+        return;
+    }
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = ''; // keep the name the server gives it
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+// Kestrel refuses a request line over 8 KB, and the request line is the address plus a few words
+const maxDownloadUrlLength = 8000;
+
+// Match FileActionService.MaxUploadBytes and MaxUploadFiles, so an upload over the limits is caught
+// before it's sent. The server cuts off a request that's too large, so the browser would only see a
+// failed connection.
+const maxUploadBytes = 100 * 1024 * 1024;
+const maxUploadFiles = 1000;
+
+function uploadFiles(files) {
+    if (files.length === 0 || shownPath === null)
+        return;
+
+    if (files.length > maxUploadFiles) {
+        showBanner(`That's ${files.length} files. Uploads are limited to ${maxUploadFiles} files at a time.`);
+        return;
+    }
+
+    const totalBytes = files.reduce((total, file) => total + file.size, 0);
+    if (totalBytes > maxUploadBytes) {
+        showBanner(`Those files add up to ${Math.ceil(totalBytes / 1024 / 1024)} MB. Uploads are limited to ${maxUploadBytes / 1024 / 1024} MB at a time.`);
+        return;
+    }
+
+    // Ask before replacing anything, going by the listing on screen. The server still refuses to
+    // replace anything unless told to.
+    const listed = new Set($('#table-data input.row-check').map((index, box) => box.dataset.name.toLowerCase()).get());
+    const conflicts = files.filter(file => listed.has(file.name.toLowerCase()));
+    if (conflicts.length > 0) {
+        const names = conflicts.slice(0, 10).map(file => `• ${file.name}`);
+        if (conflicts.length > 10)
+            names.push(`• ...and ${conflicts.length - 10} more`);
+        const question = conflicts.length === 1 ? 'Replace this item?' : `Replace these ${conflicts.length} items?`;
+        if (!confirm(`${question}\n\n${names.join('\n')}`))
+            return;
+    }
+
+    const form = new FormData();
+    files.forEach(file => form.append('files', file));
+
+    hideBanner();
+    setActionRunning(true);
+    $.ajax({
+        url: '/directory/upload?' + $.param({ path: shownPath, overwrite: conflicts.length > 0 }),
+        type: 'POST',
+        data: form,
+        processData: false, // send the FormData as is
+        contentType: false, // let the browser set multipart/form-data with its boundary
+        dataType: 'json',
+        success: function (result) {
+            showActionResult(result, 'uploaded');
+            getDirectory();
+        },
+        error: function (error) {
+            console.error("Error: ", error);
+            showBanner(`${files.length === 1 ? `"${files[0].name}"` : `${files.length} files`} couldn't be uploaded. ${getErrorMessage(error)}`);
         },
         complete: function () {
             setActionRunning(false);

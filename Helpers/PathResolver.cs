@@ -5,7 +5,64 @@ namespace TestProject.Helpers
     /// </summary>
     public static class PathResolver
     {
-        public static string Root => Path.TrimEndingDirectorySeparator(Path.GetFullPath(Environment.CurrentDirectory));
+        private static string? _root;
+
+        /// <summary>
+        /// The folder the browser can reach, set once at startup by <see cref="Configure"/>
+        /// </summary>
+        public static string Root => _root ?? throw new InvalidOperationException("PathResolver.Configure hasn't been called.");
+
+        /// <summary>
+        /// The browse root used when RootFolder isn't set
+        /// </summary>
+        public const string DefaultRootFolder = "Files";
+
+        /// <summary>
+        /// Sets the browse root to the RootFolder setting, a folder inside the app's binaries folder,
+        /// and creates it if it doesn't exist yet
+        /// </summary>
+        public static void Configure(string? rootFolder, string? webRoot)
+        {
+            var appFolder = FullPath(AppContext.BaseDirectory);
+            var root = FullPath(Path.Combine(appFolder, string.IsNullOrWhiteSpace(rootFolder) ? DefaultRootFolder : rootFolder));
+
+            if (!IsSameOrInside(root, appFolder) || string.Equals(root, appFolder, Comparison))
+                throw new InvalidOperationException($"RootFolder \"{rootFolder}\" would be \"{root}\", which isn't a folder inside the app's folder \"{appFolder}\".");
+
+            // The binaries folder has its own wwwroot once published, so refuse that name in development too
+            foreach (var siteFolder in new[] { webRoot, Path.Combine(appFolder, "wwwroot") })
+            {
+                if (siteFolder is null)
+                    continue;
+
+                var site = FullPath(siteFolder);
+                if (IsSameOrInside(root, site) || IsSameOrInside(site, root))
+                    throw new InvalidOperationException($"RootFolder \"{rootFolder}\" would be \"{root}\", which overlaps \"{site}\", the folder this site is served from. Uploads there would become part of the site.");
+            }
+
+            // A link between the binaries folder and the root could point the root anywhere, so the
+            // root can't be one or sit under one. Folders that don't exist yet are created as plain folders.
+            for (var folder = root; !string.Equals(folder, appFolder, Comparison); folder = Path.GetDirectoryName(folder)!)
+            {
+                FileAttributes attributes;
+                try
+                {
+                    attributes = File.GetAttributes(folder);
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    continue; // doesn't exist yet
+                }
+
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                    throw new InvalidOperationException($"RootFolder \"{rootFolder}\" would be \"{root}\", which goes through the link \"{folder}\". A link can point anywhere, so the root can't be one or sit under one.");
+            }
+
+            Directory.CreateDirectory(root);
+            _root = root;
+        }
+
+        private static string FullPath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
         public static StringComparison Comparison =>
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -62,6 +119,13 @@ namespace TestProject.Helpers
             directory = fullPath;
             return true;
         }
+
+        /// <summary>
+        /// True when a full path is under the root, doesn't go through a link and isn't a link itself.
+        /// For checking a path that was resolved earlier again, right before it's used.
+        /// </summary>
+        public static bool IsReachable(string fullPath) =>
+            MiscHelpers.IsPathUnderAppRoot(fullPath) && !GoesThroughLink(fullPath) && !IsLink(fullPath);
 
         /// <summary>
         /// True for a junction or symbolic link. Links can point anywhere, so they are never followed

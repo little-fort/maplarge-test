@@ -140,7 +140,7 @@ namespace TestProject.Controllers
             if (action.Copy.Count + action.Cut.Count == 0)
                 return Problem("The clipboard is empty.", statusCode: StatusCodes.Status400BadRequest);
 
-            return Ok(_fileActions.Paste(destination, action.Copy, action.Cut, overwrite));
+            return RunAction(() => _fileActions.Paste(destination, action.Copy, action.Cut, overwrite));
         }
 
         /// <summary>
@@ -158,7 +158,7 @@ namespace TestProject.Controllers
                 return Problem($"\"{action.NewName}\" isn't a valid name. Names can't be \".\" or \"..\", end with a dot or space, or contain any of these characters: \\ / : * ? \" < > |",
                     statusCode: StatusCodes.Status400BadRequest);
 
-            return Ok(_fileActions.Rename(directory, action.Names, action.NewName));
+            return RunAction(() => _fileActions.Rename(directory, action.Names, action.NewName));
         }
 
         /// <summary>
@@ -173,7 +173,73 @@ namespace TestProject.Controllers
             if (action.Names.Count == 0)
                 return Problem("No items were selected.", statusCode: StatusCodes.Status400BadRequest);
 
-            return Ok(_fileActions.Delete(directory, action.Names));
+            return RunAction(() => _fileActions.Delete(directory, action.Names));
+        }
+
+        /// <summary>
+        /// Downloads items from a folder. One file downloads as itself; several items, or a folder,
+        /// download as one zip.
+        /// </summary>
+        [HttpGet("download")]
+        public IActionResult Download([FromQuery] string path, [FromQuery] List<string> names)
+        {
+            if (!PathResolver.TryResolveDirectory(path, out var directory))
+                return NotFound();
+            if (names.Count == 0)
+                return Problem("No items were selected.", statusCode: StatusCodes.Status400BadRequest);
+
+            var items = new List<string>();
+            foreach (var name in names.Distinct(StringComparer.FromComparison(PathResolver.Comparison)))
+            {
+                var item = Path.Combine(directory, name ?? string.Empty);
+                if (!MiscHelpers.IsValidFileName(name ?? string.Empty) || PathResolver.IsLink(item) || !(System.IO.File.Exists(item) || Directory.Exists(item)))
+                    return Problem($"\"{name}\" can't be downloaded. It may have been moved or deleted, or it's a link.", statusCode: StatusCodes.Status404NotFound);
+                items.Add(item);
+            }
+
+            if (items.Count == 1 && System.IO.File.Exists(items[0]))
+            {
+                // Always an attachment of no particular type, so the browser saves it rather than displaying it
+                Response.Headers.XContentTypeOptions = "nosniff";
+                return PhysicalFile(items[0], "application/octet-stream", Path.GetFileName(items[0]), enableRangeProcessing: true);
+            }
+
+            var zipName = items.Count == 1 ? Path.GetFileName(items[0])
+                : PathResolver.IsRoot(directory) ? "Download"
+                : Path.GetFileName(directory);
+            return new ZipDownloadResult(items, zipName + ".zip");
+        }
+
+        /// <summary>
+        /// Uploads files into a folder
+        /// </summary>
+        [HttpPost("upload")]
+        [RequestSizeLimit(FileActionService.MaxUploadRequestBytes)]
+        [RequestFormLimits(MultipartBodyLengthLimit = FileActionService.MaxUploadRequestBytes, ValueCountLimit = FileActionService.MaxUploadFiles)]
+        public IActionResult Upload([FromQuery] string path, [FromForm] List<IFormFile> files, [FromQuery] bool overwrite = false)
+        {
+            if (!PathResolver.TryResolveDirectory(path, out var directory))
+                return NotFound();
+            if (files.Count == 0)
+                return Problem("No files were chosen.", statusCode: StatusCodes.Status400BadRequest);
+            if (files.Sum(file => file.Length) > FileActionService.MaxUploadBytes)
+                return Problem($"Uploads are limited to {FileActionService.MaxUploadBytes / 1024 / 1024} MB at a time.", statusCode: StatusCodes.Status413PayloadTooLarge);
+
+            return RunAction(() => _fileActions.Upload(directory, files, overwrite));
+        }
+
+        // Runs a file action. Its folder is checked again once it's the action's turn to run, and
+        // a folder that changed in the meantime is reported rather than acted on.
+        private IActionResult RunAction(Func<ItemActionResult> action)
+        {
+            try
+            {
+                return Ok(action());
+            }
+            catch (FolderChangedException ex)
+            {
+                return Problem(ex.Message, statusCode: StatusCodes.Status409Conflict);
+            }
         }
     }
 }

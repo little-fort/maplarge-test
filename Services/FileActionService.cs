@@ -27,25 +27,51 @@ namespace TestProject.Services
         /// Copies and moves items, given as browser paths
         /// </summary>
         public ItemActionResult Paste(string destination, IEnumerable<string> copy, IEnumerable<string> cut, bool overwrite) =>
-            RunExclusively(() => PasteItems(destination, copy, cut, overwrite));
+            RunExclusively(destination, () => PasteItems(destination, copy, cut, overwrite));
 
         /// <summary>
         /// Renames items in <paramref name="directory"/>
         /// </summary>
         public ItemActionResult Rename(string directory, IReadOnlyList<string> names, string newName) =>
-            RunExclusively(() => RenameItems(directory, names, newName));
+            RunExclusively(directory, () => RenameItems(directory, names, newName));
 
         /// <summary>
         /// Recursively deletes items in <paramref name="directory"/>
         /// </summary>
         public ItemActionResult Delete(string directory, IReadOnlyList<string> names) =>
-            RunExclusively(() => DeleteItems(directory, names));
+            RunExclusively(directory, () => DeleteItems(directory, names));
+
+        /// <summary>
+        /// The most file content one upload can send
+        /// </summary>
+        public const long MaxUploadBytes = 100 * 1024 * 1024;
+
+        /// <summary>
+        /// The most an upload request can send. Kestrel refuses larger requests before they reach the action.
+        /// </summary>
+        public const long MaxUploadRequestBytes = MaxUploadBytes + 1024 * 1024;
+
+        /// <summary>
+        /// The most files one upload can send. ASP.NET Core's own form limit is 1024.
+        /// </summary>
+        public const int MaxUploadFiles = 1000;
+
+        /// <summary>
+        /// Saves uploaded files into <paramref name="directory"/>. A name that is taken fails unless
+        /// <paramref name="overwrite"/> is set, and only a file can be replaced
+        /// </summary>
+        public ItemActionResult Upload(string directory, IReadOnlyList<IFormFile> files, bool overwrite) =>
+            RunExclusively(directory, () => UploadFiles(directory, files, overwrite));
 
         // Runs one action at a time and drops cached folder sizes
-        private ItemActionResult RunExclusively(Func<ItemActionResult> action)
+        private ItemActionResult RunExclusively(string directory, Func<ItemActionResult> action)
         {
             lock (_actionLock)
             {
+                // Earlier actions may change folder contents so it's checked again after lock is granted
+                if (!PathResolver.IsReachable(directory) || !Directory.Exists(directory))
+                    throw new FolderChangedException();
+
                 try
                 {
                     return action();
@@ -188,6 +214,57 @@ namespace TestProject.Services
             }
 
             result.Message = JoinCounts((deleted, "deleted"));
+            return result;
+        }
+
+        private ItemActionResult UploadFiles(string directory, IReadOnlyList<IFormFile> files, bool overwrite)
+        {
+            var result = new ItemActionResult();
+            var uploaded = 0;
+
+            foreach (var file in files)
+            {
+                // The browser sends just the name, but it is still untrusted input
+                var name = file.FileName;
+                try
+                {
+                    if (!MiscHelpers.IsValidFileName(name))
+                        throw new ItemActionException("It isn't a valid name.");
+
+                    var target = Path.Combine(directory, name);
+                    if (PathResolver.IsLink(target))
+                        throw new ItemActionException($"\"{name}\" here is a link, which can't be replaced.");
+                    if (Directory.Exists(target))
+                        throw new ItemActionException($"A folder named \"{name}\" already exists here.");
+                    if (!overwrite && File.Exists(target))
+                        throw new ItemActionException($"An item named \"{name}\" already exists here.");
+
+                    var temp = Path.Combine(directory, $".upload-{Guid.NewGuid():N}.tmp");
+                    try
+                    {
+                        using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
+                            file.CopyTo(stream);
+                        File.Move(temp, target, overwrite);
+                    }
+                    finally
+                    {
+                        if (File.Exists(temp))
+                            File.Delete(temp);
+                    }
+                    uploaded++;
+                }
+                catch (ItemActionException ex)
+                {
+                    result.Failed.Add(new ItemFailure { Name = name, Reason = ex.Message });
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Could not upload {Name} into {Directory}", name, directory);
+                    result.Failed.Add(new ItemFailure { Name = name, Reason = Describe(ex) });
+                }
+            }
+
+            result.Message = JoinCounts((uploaded, "uploaded"));
             return result;
         }
 
@@ -394,5 +471,14 @@ namespace TestProject.Services
         {
             public ItemActionException(string reason) : base(reason) { }
         }
+    }
+
+    /// <summary>
+    /// The folder an action was for was moved, deleted or replaced by a link before the action ran.
+    /// Nothing was changed.
+    /// </summary>
+    public sealed class FolderChangedException : Exception
+    {
+        public FolderChangedException() : base("The folder was moved or changed before the action could run. Reload it and try again.") { }
     }
 }

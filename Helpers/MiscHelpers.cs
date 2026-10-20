@@ -1,8 +1,14 @@
-﻿
+﻿using System.Text.RegularExpressions;
+
 namespace TestProject.Helpers
 {
     public class MiscHelpers
     {
+        // Restricted Windows device names (CON, NUL, COM1...)
+        private static readonly Regex ReservedNames = new(
+            @"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])\s*(\..*)?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
         private const decimal _KB = 1024;
         private const decimal _MB = _KB * 1024;
         private const decimal _GB = _MB * 1024;
@@ -29,7 +35,7 @@ namespace TestProject.Helpers
         
         public static bool IsPathUnderAppRoot(string path)
         {
-            var appDir = Path.GetFullPath(Environment.CurrentDirectory);
+            var appDir = PathResolver.Root;
             var rootDir = Path.EndsInDirectorySeparator(appDir) ? appDir : appDir + Path.DirectorySeparatorChar;
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
@@ -47,6 +53,7 @@ namespace TestProject.Helpers
             && name == Path.GetFileName(name)
             && name is not "." and not ".."
             && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
-            && !(OperatingSystem.IsWindows() && (name.EndsWith('.') || name.EndsWith(' '))); // Windows silently drops a trailing dot or space, so "a." would become "a"
+            && !(OperatingSystem.IsWindows() && (name.EndsWith('.') || name.EndsWith(' '))) // Windows silently drops a trailing dot or space, so "a." would become "a"
+            && !(OperatingSystem.IsWindows() && ReservedNames.IsMatch(name));
     }
 }
