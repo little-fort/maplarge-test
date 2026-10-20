@@ -23,9 +23,13 @@
                 <button type="button" id="banner-close" class="banner-close" aria-label="Dismiss" title="Dismiss">&times;</button>
             </div>
             <section class="panel" aria-labelledby="location-label location-path">
-                <div class="panel-header">
+                <div class="panel-header location-header">
                     <span id="location-label" class="location-label">Location</span>
                     <span id="location-path" class="location-path"></span>
+                    <form id="search-form" class="search-form" role="search">
+                        <label for="search-box" class="visually-hidden">Search this folder and its subfolders</label>
+                        <input type="search" id="search-box" class="search-box" name="term" placeholder="Search this folder" autocomplete="off" spellcheck="false" enterkeyhint="search">
+                    </form>
                 </div>
                 <div class="toolbar" role="group" aria-label="Actions for the selected items">
                     <button type="button" id="action-copy" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">🗃️</span>Copy</button>
@@ -39,6 +43,10 @@
                     <button type="button" id="action-upload" class="tool-button" disabled><span class="tool-icon" aria-hidden="true">⬆️</span>Upload</button>
                     <input type="file" id="upload-input" multiple hidden>
                     <span id="selection-count" class="selection-count"></span>
+                </div>
+                <div id="search-status" class="search-status" hidden>
+                    <span id="search-summary" class="search-summary" role="status"></span>
+                    <button type="button" id="search-clear" class="text-button">Back to folder</button>
                 </div>
                 <table id="table-data">
                     <colgroup>

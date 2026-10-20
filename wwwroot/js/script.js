@@ -10,6 +10,15 @@ let directoryRequest = null;
 // which changes as soon as the user navigates
 let shownPath = null;
 
+// The search being run. Starting another, or opening a folder, cancels it
+let searchRequest = null;
+
+// True while search results are shown (or on their way) in place of the folder's listing
+let searchActive = false;
+
+// A search result to highlight once its folder's listing arrives
+let pendingHighlight = null;
+
 $(document).ready(function () {
     const path = getPath();
     if (!path || path.length === 0 || path.includes(':') || path.includes(".."))
@@ -58,6 +67,27 @@ $(document).ready(function () {
         removeClipboardItem(Number(this.dataset.index));
     });
     $('#clipboard-clear').on('click', () => saveClipboard([]));
+
+    // Search
+    $('#search-form').on('submit', function (event) {
+        event.preventDefault(); // searches in place instead of reloading the page
+        runSearch($('#search-box').val());
+    });
+    $('#search-box').on('keydown', function (event) {
+        if (event.key === 'Escape' && searchActive) {
+            event.preventDefault();
+            clearSearch();
+        }
+    });
+    // Emptying the box, including with its own clear button, ends the search
+    $('#search-box').on('input', function () {
+        if (searchActive && this.value.trim() === '')
+            clearSearch();
+    });
+    $('#search-clear').on('click', clearSearch);
+    $('#table-data').on('click', 'a[data-result-path]', function () {
+        openSearchResult(this.dataset.resultPath, this.dataset.type);
+    });
 });
 
 function getPath() {
@@ -85,6 +115,7 @@ function updateQueryParam(key, value, allowBack) {
 
 function getDirectory() {
     const path = getPath();
+    endSearch(); // the folder's listing takes the place of any search results
     folderSizesRequest?.abort(); // the sizes are for the folder being left
     directoryRequest?.abort();
     directoryRequest = $.ajax({
@@ -96,8 +127,12 @@ function getDirectory() {
             localStorage.setItem(getPath(), JSON.stringify(data));
             shownPath = data.path;
             showLocation(path);
-            showContents(data.contents);
             setProperties(data.directory);
+            // A search started while this was loading keeps the table
+            if (!searchActive) {
+                showContents(data.contents);
+                highlightPendingResult(); // after the folder's properties, so an opened file's replace them
+            }
             getFolderSizes(path);
         },
         error: function (error, status) {
@@ -208,7 +243,7 @@ function showContents(dir) {
     }
 
     $.each(dir, function (index, object) {
-        const objectIcon = object.isLink ? '🔗' : object.type === 0 ? '📁' : '';
+        const objectIcon = object.isLink ? '🔗' : object.type === 0 ? '📁' : getFileTypeIcon(object.extension);
         const objectType = object.type === 0 ? 'folder' : 'file';
         const name = htmlEncode(object.name);
         // The server doesn't open links, so a linked folder isn't clickable
@@ -426,10 +461,12 @@ function setActionRunning(running) {
 
 function updateToolbar() {
     const nothingSelected = $('#table-data input.row-check:checked').length === 0;
-    $('#action-copy, #action-cut, #action-rename, #action-delete').prop('disabled', actionRunning || nothingSelected);
-    $('#action-paste').prop('disabled', actionRunning || shownPath === null || getClipboard().length === 0);
-    $('#action-download').prop('disabled', nothingSelected);
-    $('#action-upload').prop('disabled', actionRunning || shownPath === null);
+    // Disable actions while search results populate
+    const locked = actionRunning || searchActive;
+    $('#action-copy, #action-cut, #action-rename, #action-delete').prop('disabled', locked || nothingSelected);
+    $('#action-paste').prop('disabled', locked || shownPath === null || getClipboard().length === 0);
+    $('#action-download').prop('disabled', searchActive || nothingSelected);
+    $('#action-upload').prop('disabled', locked || shownPath === null);
 }
 
 // Browser path of an item in the folder being shown
@@ -518,6 +555,130 @@ function removeClipboardItem(index) {
     const clipboard = getClipboard();
     clipboard.splice(index, 1);
     saveClipboard(clipboard);
+}
+
+// Search
+
+// Searches the folder specified in the URL. The results replace the listing until the search ends.
+function runSearch(term) {
+    term = term.trim();
+    if (term.length === 0) {
+        if (searchActive)
+            clearSearch();
+        return;
+    }
+
+    const folder = getPath();
+    searchRequest?.abort();
+    searchActive = true;
+    hideBanner();
+    updateToolbar();
+    showSearchStatus(`Searching ${folder} for "${term}"…`);
+
+    searchRequest = $.ajax({
+        url: '/directory/search',
+        type: 'GET',
+        data: { path: folder, term: term },
+        success: function (data) {
+            showSearchResults(data, term, folder);
+        },
+        error: function (error, status) {
+            if (status === 'abort')
+                return; // replaced by a newer search, or the user left
+            console.error("Error: ", error);
+            showSearchStatus(`Couldn't search ${folder}.`);
+            showBanner(`The search couldn't be completed. ${getErrorMessage(error)}`);
+        }
+    });
+}
+
+function showSearchResults(data, term, folder) {
+    const rows = data.results.map(result => {
+        const icon = result.isLink ? '🔗' : result.type === 0 ? '📁' : getFileTypeIcon(result.extension);
+        const type = result.type === 0 ? 'folder' : 'file';
+        const location = result.path.slice(0, result.path.lastIndexOf('/')) || '/';
+        const localDate = (new Date(result.lastWriteTimeUtc)).toLocaleString('en-US', { timeZoneName: 'short' });
+        return `
+            <tr class="search-result">
+                <td class="col-select"></td>
+                <td class="col-icon">${icon}</td>
+                <td class="col-name">
+                    <a data-result-path="${htmlEncode(result.path)}" data-type="${result.isLink ? 'link' : type}">${htmlEncode(result.name)}</a>
+                    <span class="result-location">in ${htmlEncode(location)}</span>
+                </td>
+                <td class="col-type">${htmlEncode(result.extension)}</td>
+                <td class="col-modified">${localDate}</td>
+                <td class="col-size">${htmlEncode(result.displaySize)}</td>
+            </tr>
+        `;
+    });
+
+    $('#table-data tbody').html(rows.join(''));
+    updateSelection();
+
+    const count = data.results.length;
+    if (count === 0)
+        showSearchStatus(`Nothing in ${folder} matches "${term}".`);
+    else if (data.truncated)
+        showSearchStatus(`Showing the first ${count} items in ${folder} that match "${term}". Search for something more specific to see the rest.`);
+    else
+        showSearchStatus(`${count} ${count === 1 ? 'item' : 'items'} in ${folder} ${count === 1 ? 'matches' : 'match'} "${term}".`);
+}
+
+function showSearchStatus(text) {
+    $('#search-summary').text(text);
+    $('#search-status').prop('hidden', false);
+}
+
+// Cancels a running search and hides its status. The caller shows the folder's listing.
+function endSearch() {
+    searchRequest?.abort();
+    searchRequest = null;
+    if (searchActive)
+        $('#search-box').val('');
+    searchActive = false;
+    $('#search-status').prop('hidden', true);
+}
+
+// Goes back from search results to the folder's own listing
+function clearSearch() {
+    getDirectory();
+}
+
+// A folder opens itself. A file or link opens the folder it's in, with that item highlighted.
+function openSearchResult(path, type) {
+    const lastSlash = path.lastIndexOf('/');
+    const folder = path.slice(0, lastSlash) || '/';
+    if (type === 'folder')
+        openFolder(path);
+    else
+        openFolder(folder, path.slice(lastSlash + 1));
+}
+
+function openFolder(path, highlightName = null) {
+    hideBanner();
+    pendingHighlight = highlightName === null ? null : { folder: path, name: highlightName };
+    updateQueryParam('path', path, true);
+    getDirectory();
+}
+
+// Highlights the search result that was opened, once its folder's listing is on screen
+function highlightPendingResult() {
+    const pending = pendingHighlight;
+    pendingHighlight = null;
+    if (pending === null || pending.folder !== shownPath)
+        return;
+
+    const row = $('#table-data input.row-check').filter((index, box) => box.dataset.name === pending.name).closest('tr');
+    if (row.length === 0)
+        return; // moved or deleted since the search
+
+    const fileLink = row.find('a[data-type="file"]');
+    if (fileLink.length > 0)
+        setFileProperties(fileLink[0].dataset.path, fileLink[0]);
+    else
+        row.addClass('selected').siblings().removeClass('selected');
+    row[0].scrollIntoView({ block: 'center' });
 }
 
 // Item actions
@@ -670,9 +831,7 @@ function downloadSelection() {
 // Kestrel refuses a request line over 8 KB, and the request line is the address plus a few words
 const maxDownloadUrlLength = 8000;
 
-// Match FileActionService.MaxUploadBytes and MaxUploadFiles, so an upload over the limits is caught
-// before it's sent. The server cuts off a request that's too large, so the browser would only see a
-// failed connection.
+// Match FileActionService.MaxUploadBytes and MaxUploadFiles, blocks upload over limit before it's sent
 const maxUploadBytes = 100 * 1024 * 1024;
 const maxUploadFiles = 1000;
 
@@ -691,8 +850,7 @@ function uploadFiles(files) {
         return;
     }
 
-    // Ask before replacing anything, going by the listing on screen. The server still refuses to
-    // replace anything unless told to.
+    // Confirm before overwrite
     const listed = new Set($('#table-data input.row-check').map((index, box) => box.dataset.name.toLowerCase()).get());
     const conflicts = files.filter(file => listed.has(file.name.toLowerCase()));
     if (conflicts.length > 0) {

@@ -150,6 +150,113 @@ h2 {
     overflow-wrap: anywhere;
 }
 
+/* Holds the search box too, so it centers its items and trims its padding to keep the
+   same height as the other panel headers */
+.location-header {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 8px;
+    padding-block: 8px;
+}
+
+/* For text that's only for screen readers */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ---------- Search ---------- */
+
+.search-form {
+    position: relative;
+    flex: 0 1 260px;
+    margin: 0 0 0 auto;
+}
+
+/* Magnifier, drawn as a mask so it takes the theme's muted text color */
+.search-form::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 10px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-muted);
+    transform: translateY(-50%);
+    pointer-events: none;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='6.5' cy='6.5' r='5' fill='none' stroke='black' stroke-width='1.8'/%3E%3Cpath d='M10.4 10.4 15 15' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='6.5' cy='6.5' r='5' fill='none' stroke='black' stroke-width='1.8'/%3E%3Cpath d='M10.4 10.4 15 15' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.search-box {
+    width: 100%;
+    padding: 5px 8px 5px 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-weight: 400;
+    line-height: 1.3;
+}
+
+.search-box::placeholder {
+    color: var(--text-muted);
+    opacity: 1; /* Firefox fades placeholders by default */
+}
+
+.search-box:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* What the results are, between the toolbar and the table */
+.search-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 6px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.search-status[hidden] {
+    display: none; /* `display: flex` above would otherwise override the hidden attribute */
+}
+
+.search-summary {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.search-status .text-button {
+    flex: none;
+}
+
+/* A result's icon and details line up with its name, and the folder it's in sits under the name */
+#table-data tr.search-result td {
+    vertical-align: top;
+}
+
+#table-data tr.search-result td.col-icon {
+    padding-top: 9px;
+}
+
+#table-data .result-location {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
 /* ---------- Banner ---------- */
 
 .banner {
@@ -618,5 +725,11 @@ h2 {
     /* The toolbar wraps here, which would leave the divider dangling at a line end */
     .toolbar-divider {
         display: none;
+    }
+
+    /* The search box gets a row of its own under the location */
+    .search-form {
+        flex-basis: 100%;
+        margin-left: 0;
     }
 }

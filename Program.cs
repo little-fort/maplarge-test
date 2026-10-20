@@ -25,19 +25,6 @@ namespace TestProject
 
             app.UseHttpsRedirection();
 
-            // Defense against cross-site scripting
-            app.Use(async (context, next) =>
-            {
-                if (!HttpMethods.IsGet(context.Request.Method)
-                    && !HttpMethods.IsHead(context.Request.Method)
-                    && context.Request.Headers.XRequestedWith != "XMLHttpRequest")
-                {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    return;
-                }
-                await next(context);
-            });
-
             app.UseStaticFiles();
 
             app.MapControllers();

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
+using System.IO.Enumeration;
 using TestProject.Helpers;
 using TestProject.Models;
 using TestProject.Services;
@@ -11,9 +12,12 @@ namespace TestProject.Controllers
     public class DirectoryController : ControllerBase 
     {
 
-        // Lists a folder's own files and subfolders, including hidden and system ones, matching what
-        // Directory.GetDirectories and Directory.GetFiles return for the listing in Get.
+        // Explicitly include hidden/system files and folders
         private static readonly EnumerationOptions ContentsOptions = new() { AttributesToSkip = 0 };
+
+        private static readonly EnumerationOptions SearchOptions = new() { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = true };
+
+        public const int MaxSearchResults = 500;
 
         private readonly ILogger<DirectoryController> _logger;
         private readonly DirectorySizeService _directorySizes;
@@ -59,7 +63,7 @@ namespace TestProject.Controllers
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     Size = info.Length,
                     DisplaySize = MiscHelpers.FormatDisplaySize(info.Length),
-                    Extension = info.Name.Contains('.') ? info.Name.Split('.').ToList().Last().ToUpper() : "FILE",
+                    Extension = MiscHelpers.GetExtensionLabel(info.Name),
                     Type = ServerObjectType.File,
                     IsLink = info.Attributes.HasFlag(FileAttributes.ReparsePoint)
                 });
@@ -145,7 +149,6 @@ namespace TestProject.Controllers
 
         /// <summary>
         /// Renames items in a folder. Batch renaming gives items numbered names.
-        /// Returns 200 with a per-item result, even when some or all items fail.
         /// </summary>
         [HttpPost("rename")]
         public IActionResult Rename([FromBody] RenameAction action)
@@ -163,7 +166,6 @@ namespace TestProject.Controllers
 
         /// <summary>
         /// Deletes items in a folder, including everything inside folders.
-        /// Returns 200 with a per-item result, even when some or all items fail.
         /// </summary>
         [HttpPost("delete")]
         public IActionResult Delete([FromBody] DeleteAction action)
@@ -177,8 +179,7 @@ namespace TestProject.Controllers
         }
 
         /// <summary>
-        /// Downloads items from a folder. One file downloads as itself; several items, or a folder,
-        /// download as one zip.
+        /// Downloads items from a folder. One file = direct download, folder or multi-item = .zip
         /// </summary>
         [HttpGet("download")]
         public IActionResult Download([FromQuery] string path, [FromQuery] List<string> names)
@@ -240,6 +241,55 @@ namespace TestProject.Controllers
             {
                 return Problem(ex.Message, statusCode: StatusCodes.Status409Conflict);
             }
+        }
+
+        /// <summary>
+        /// Recursively inds files and folders whose names contain the term
+        /// </summary>
+        [HttpGet("search")]
+        public IActionResult Search([FromQuery] string path, [FromQuery] string? term, CancellationToken cancellationToken)
+        {
+            if (!PathResolver.TryResolveDirectory(path, out var directory))
+                return NotFound();
+
+            var text = term?.Trim() ?? string.Empty;
+            if (text.Length == 0)
+                return Problem("Enter something to search for.", statusCode: StatusCodes.Status400BadRequest);
+
+            var matches = new FileSystemEnumerable<SearchResult>(directory, (ref FileSystemEntry entry) => ToSearchResult(ref entry), SearchOptions)
+            {
+                // Checks the name in place, without allocating anything for the names that don't match
+                ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested(); // the user searched again or left
+                    return entry.FileName.Contains(text, StringComparison.OrdinalIgnoreCase);
+                },
+                // Ignore symlinks
+                ShouldRecursePredicate = (ref FileSystemEntry entry) => !entry.Attributes.HasFlag(FileAttributes.ReparsePoint),
+            };
+
+            // One more than the limit, to tell whether there were more
+            var results = matches.Take(MaxSearchResults + 1).ToList();
+            var truncated = results.Count > MaxSearchResults;
+            if (truncated)
+                results.RemoveAt(MaxSearchResults);
+
+            return Ok(new SearchResults { Results = results, Truncated = truncated });
+        }
+
+        private static SearchResult ToSearchResult(ref FileSystemEntry entry)
+        {
+            var name = entry.FileName.ToString();
+            return new SearchResult
+            {
+                Name = name,
+                Path = PathResolver.ToBrowserPath(entry.ToFullPath()),
+                Type = entry.IsDirectory ? ServerObjectType.Directory : ServerObjectType.File,
+                Extension = entry.IsDirectory ? string.Empty : MiscHelpers.GetExtensionLabel(name),
+                DisplaySize = entry.IsDirectory ? string.Empty : MiscHelpers.FormatDisplaySize(entry.Length),
+                LastWriteTimeUtc = entry.LastWriteTimeUtc.UtcDateTime,
+                IsLink = entry.Attributes.HasFlag(FileAttributes.ReparsePoint),
+            };
         }
     }
 }

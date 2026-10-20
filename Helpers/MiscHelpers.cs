@@ -32,6 +32,12 @@ namespace TestProject.Helpers
             
             return $"{Math.Round(size / _PB)} PB";
         }
+
+        /// <summary>
+        /// The type shown for a file: its extension in capitals, or "FILE" when it has none
+        /// </summary>
+        public static string GetExtensionLabel(string fileName) =>
+            fileName.Contains('.') ? fileName.Split('.').Last().ToUpperInvariant() : "FILE";
         
         public static bool IsPathUnderAppRoot(string path)
         {
