@@ -327,7 +327,7 @@ function setProperties(item) {
 
 function getFileTypeIcon(extension) {
     if (extension === "") return "📁";
-    if (extension === "FILE") return "❔📝";
+    if (extension === "FILE") return "❔";
 
     const exe = ["EXE"]
     const cab = ["CAB", "MSI", "MSIX", "GZ"];
