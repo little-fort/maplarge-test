@@ -327,25 +327,35 @@ function setProperties(item) {
 
 function getFileTypeIcon(extension) {
     if (extension === "") return "📁";
-    if (extension === "FILE") return "📄";
+    if (extension === "FILE") return "❔📝";
 
     const exe = ["EXE"]
-    const cab = ["CAB", "MSI", "MSIX", "ZIP", "7Z"];
+    const cab = ["CAB", "MSI", "MSIX", "GZ"];
+    const zip = ["ZIP", "RAR", "7Z", "TAR"];
+    const text = ["TXT", "MD", "CSV", "LOG", "INI", "JSON", "XML"];
+    const doc = ["DOC", "DOCX", "ODT", "RTF", "PDF"];
+    const code = ["CS", "CPP", "H", "JAVA", "RB", "PHP"];
     const video = ["MP4", "MOV", "MPEG", "AVI", "MKV", "WEBM"];
     const audio = ["MP3", "WAV", "AAC", "OGG"];
     const image = ["JPEG", "JPG", "PNG", "TIFF", "BMP", "GIF"];
-    const web = ["HTM", "HTML"];
+    const web = ["HTM", "HTML", "CSS"];
     const script = ["JS", "PS1", "PY", "SH", "BAT"];
+    const vm = ["VMDK", "VHD", "VHDX", "RDP"];
 
     if (exe.includes(extension)) return "💽";
     if (cab.includes(extension)) return "🗄️";
+    if (zip.includes(extension)) return "📦";
+    if (text.includes(extension)) return "📝";
+    if (doc.includes(extension)) return "📑";
+    if (code.includes(extension)) return "📃";
     if (video.includes(extension)) return "🎬";
     if (audio.includes(extension)) return "🔉";
     if (image.includes(extension)) return "🖼️";
     if (web.includes(extension)) return "🌐";
     if (script.includes(extension)) return "📜";
+    if (vm.includes(extension)) return "🖥️";
 
-    return "📃";
+    return "📄";
 }
 
 function htmlEncode(str) {
