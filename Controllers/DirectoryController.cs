@@ -31,7 +31,7 @@ namespace TestProject.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Get([FromQuery] string path)
+        public IActionResult Get([FromQuery] string path)
         {
             if (!PathResolver.TryResolveDirectory(path, out var directory))
                 return NotFound();
