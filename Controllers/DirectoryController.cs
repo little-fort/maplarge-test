@@ -244,7 +244,7 @@ namespace TestProject.Controllers
         }
 
         /// <summary>
-        /// Recursively inds files and folders whose names contain the term
+        /// Recursively finds files and folders whose names contain the term
         /// </summary>
         [HttpGet("search")]
         public IActionResult Search([FromQuery] string path, [FromQuery] string? term, CancellationToken cancellationToken)
@@ -264,7 +264,7 @@ namespace TestProject.Controllers
                     cancellationToken.ThrowIfCancellationRequested(); // the user searched again or left
                     return entry.FileName.Contains(text, StringComparison.OrdinalIgnoreCase);
                 },
-                // Ignore symlinks
+                // Ignore symlinks & junctions
                 ShouldRecursePredicate = (ref FileSystemEntry entry) => !entry.Attributes.HasFlag(FileAttributes.ReparsePoint),
             };
 
